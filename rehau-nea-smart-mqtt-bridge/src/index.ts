@@ -98,7 +98,12 @@ if (validationResult.warnings.length > 0) {
 }
 
 // Initialize components
-const auth = new RehauAuthPersistent(config.rehau.email, config.rehau.password);
+const auth = new RehauAuthPersistent(
+  config.rehau.email,
+  config.rehau.password,
+  process.env.REHAU_ACCESS_TOKEN,
+  process.env.REHAU_REFRESH_TOKEN
+);
 const mqttBridge = new RehauMQTTBridge(auth, config.mqtt);
 const rehauApi = auth; // RehauAuth has the API methods
 const climateController = new ClimateController(mqttBridge, rehauApi);

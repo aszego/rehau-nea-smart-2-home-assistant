@@ -44,10 +44,16 @@ class RehauAuthPersistent {
   private tokenRefreshCount: number = 0;
   private fullAuthCount: number = 0;
 
-  constructor(email: string, password: string) {
+  constructor(email: string, password: string, accessToken?: string | null, refreshToken?: string | null) {
     this.email = email;
     this.password = password;
     this.clientId = `app-${crypto.randomUUID()}`;
+    this.accessToken = accessToken || null;
+    this.refreshToken = refreshToken || null;
+    if (this.accessToken) {
+      this.tokenExpiry = this.parseJwtExpiry(this.accessToken);
+      logger.info('Using configured REHAU access token');
+    }
     this.tokenRefreshInterval = parseInt(process.env.TOKEN_REFRESH_INTERVAL || '21600') * 1000; // Default 6 hours
     
     // Setup simulated disconnection timer for testing (if configured)
@@ -166,6 +172,24 @@ class RehauAuthPersistent {
 
   private generateNonce(): string {
     return crypto.randomBytes(16).toString('base64url');
+  }
+
+  private parseJwtExpiry(token: string): number | null {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) {
+        return null;
+      }
+
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+      if (typeof payload.exp === 'number') {
+        return payload.exp * 1000;
+      }
+    } catch {
+      // Ignore malformed JWT payload
+    }
+
+    return null;
   }
 
   /**
@@ -979,6 +1003,10 @@ class RehauAuthPersistent {
       
       // Check if it's a 401 error (invalid/expired refresh token)
       if (error instanceof Error && error.message.includes('401')) {
+        if (!this.password) {
+          logger.error('Refresh token expired and no password is configured for fallback login');
+          throw error;
+        }
         logger.info('Refresh token expired (401), logging in again...');
         return await this.login();
       }
@@ -1049,8 +1077,15 @@ class RehauAuthPersistent {
         this.startTokenRefresh();
         return;
       } catch (error) {
+        if (!this.password) {
+          logger.error('⚠️ Token refresh failed and no password is configured for fallback login');
+          throw error;
+        }
         logger.warn('⚠️ Token refresh failed, falling back to fresh login:', (error as Error).message);
       }
+    } else if (this.accessToken && !this.isTokenExpired()) {
+      logger.info('✅ Using configured access token until expiry');
+      return;
     } else {
       logger.info('🔐 No refresh token available, performing fresh login...');
     }

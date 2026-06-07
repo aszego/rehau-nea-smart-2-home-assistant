@@ -23,6 +23,9 @@ options:
   # REHAU Account
   rehau_email: ""
   rehau_password: ""
+  # Optional direct REHAU token auth. If both values are set, the plugin will bypass login.
+  rehau_access_token: ""
+  rehau_refresh_token: ""
   
   # MQTT Broker
   mqtt_host: "core-mosquitto"
@@ -92,6 +95,8 @@ schema:
   # REHAU Account (required - must be configured by user)
   rehau_email: email?
   rehau_password: password?
+  rehau_access_token: password?
+  rehau_refresh_token: password?
   
   # MQTT Broker
   mqtt_host: str

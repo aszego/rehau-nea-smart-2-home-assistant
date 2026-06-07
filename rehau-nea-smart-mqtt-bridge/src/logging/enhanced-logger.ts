@@ -1,5 +1,6 @@
-import winston from 'winston';
-import chalk from 'chalk';
+import type { Logger } from 'winston';
+const winston = require('winston');
+const chalk = require('chalk');
 
 // Direction indicators
 export const Direction = {
@@ -51,7 +52,7 @@ export interface LogContext {
 }
 
 class EnhancedLogger {
-  private logger: winston.Logger;
+  private logger: Logger;
   private shareableMode: boolean = false;
   private obfuscationMap: Map<string, string> = new Map();
 
@@ -61,7 +62,7 @@ class EnhancedLogger {
       format: winston.format.combine(
         winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
         winston.format.errors({ stack: true }),
-        winston.format.printf((info) => {
+        winston.format.printf((info: any) => {
           return this.formatLog(info.timestamp as string, info.level, info.message, info);
         })
       ),

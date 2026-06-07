@@ -45,6 +45,28 @@ if [ -f "$OPTIONS_FILE" ]; then
   fi
   echo "[DEBUG] REHAU_PASSWORD length: ${#REHAU_PASSWORD} (not printing actual value for safety)"
 
+  # REHAU_ACCESS_TOKEN
+  echo "[DEBUG] Reading 'rehau_access_token'..."
+  REHAU_ACCESS_TOKEN="$(jq -r '.rehau_access_token // empty' "$OPTIONS_FILE" 2>/tmp/jq_rehau_access_token.err || echo "")"
+  JQ_STATUS_REHAU_ACCESS_TOKEN=$?
+  echo "[DEBUG] jq status for rehau_access_token: $JQ_STATUS_REHAU_ACCESS_TOKEN"
+  if [ -s /tmp/jq_rehau_access_token.err ]; then
+    echo "[DEBUG] jq stderr for rehau_access_token:"
+    cat /tmp/jq_rehau_access_token.err
+  fi
+  echo "[DEBUG] REHAU_ACCESS_TOKEN length: ${#REHAU_ACCESS_TOKEN} (not printing actual value for safety)"
+
+  # REHAU_REFRESH_TOKEN
+  echo "[DEBUG] Reading 'rehau_refresh_token'..."
+  REHAU_REFRESH_TOKEN="$(jq -r '.rehau_refresh_token // empty' "$OPTIONS_FILE" 2>/tmp/jq_rehau_refresh_token.err || echo "")"
+  JQ_STATUS_REHAU_REFRESH_TOKEN=$?
+  echo "[DEBUG] jq status for rehau_refresh_token: $JQ_STATUS_REHAU_REFRESH_TOKEN"
+  if [ -s /tmp/jq_rehau_refresh_token.err ]; then
+    echo "[DEBUG] jq stderr for rehau_refresh_token:"
+    cat /tmp/jq_rehau_refresh_token.err
+  fi
+  echo "[DEBUG] REHAU_REFRESH_TOKEN length: ${#REHAU_REFRESH_TOKEN} (not printing actual value for safety)"
+
   # POP3_EMAIL
   echo "[DEBUG] Reading 'pop3_email'..."
   POP3_EMAIL="$(jq -r '.pop3_email // empty' "$OPTIONS_FILE" 2>/tmp/jq_pop3_email.err || echo "")"
@@ -193,9 +215,12 @@ if [ -f "$OPTIONS_FILE" ]; then
   export \
     REHAU_EMAIL \
     REHAU_PASSWORD \
+    REHAU_ACCESS_TOKEN \
+    REHAU_REFRESH_TOKEN \
     POP3_EMAIL \
     POP3_PASSWORD \
     POP3_HOST \
+
     POP3_PORT \
     POP3_SECURE \
     POP3_TIMEOUT \
@@ -246,6 +271,8 @@ fi
 echo "[DEBUG] Current environment snapshot (redacted secrets):"
 echo "  REHAU_EMAIL='${REHAU_EMAIL:-<unset>}'"
 echo "  REHAU_PASSWORD length='${REHAU_PASSWORD:+${#REHAU_PASSWORD}}'"
+echo "  REHAU_ACCESS_TOKEN length='${REHAU_ACCESS_TOKEN:+${#REHAU_ACCESS_TOKEN}}'"
+echo "  REHAU_REFRESH_TOKEN length='${REHAU_REFRESH_TOKEN:+${#REHAU_REFRESH_TOKEN}}'"
 echo "  POP3_PROVIDER='${POP3_PROVIDER:-<unset>}'"
 echo "  POP3_EMAIL='${POP3_EMAIL:-<unset>}'"
 echo "  POP3_PASSWORD length='${POP3_PASSWORD:+${#POP3_PASSWORD}}'"
@@ -300,10 +327,12 @@ if [ -z "$REHAU_EMAIL" ]; then
 fi
 
 if [ -z "$REHAU_PASSWORD" ]; then
-  echo "[ERROR] REHAU_PASSWORD environment variable is required"
-  echo "[ERROR] For Home Assistant addon: ensure 'rehau_password' is set in addon configuration"
-  echo "[ERROR] For standalone / HA Core / plain Linux: ensure REHAU_PASSWORD environment variable is set"
-  exit 1
+  if [ -z "$REHAU_ACCESS_TOKEN" ] || [ -z "$REHAU_REFRESH_TOKEN" ]; then
+    echo "[ERROR] REHAU_PASSWORD environment variable is required unless both REHAU_ACCESS_TOKEN and REHAU_REFRESH_TOKEN are configured"
+    echo "[ERROR] For Home Assistant addon: ensure 'rehau_password' or both 'rehau_access_token' and 'rehau_refresh_token' are set in addon configuration"
+    echo "[ERROR] For standalone / HA Core / plain Linux: ensure REHAU_PASSWORD or both REHAU_ACCESS_TOKEN and REHAU_REFRESH_TOKEN environment variables are set"
+    exit 1
+  fi
 fi
 
 if [ -z "$MQTT_HOST" ]; then
