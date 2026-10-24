@@ -1,0 +1,47 @@
+configuration:
+  rehau_email:
+    name: REHAU account email (required)
+    description: >-
+      Enter the email of the REHAU account used for your NEA SMART installation.
+      This is not your API/Web UI administrator login. The bridge does not use
+      your REHAU password or read your mailbox.
+  rehau_access_token:
+    name: REHAU access token (required)
+    description: >-
+      On your PC, install the .NET 10 SDK and run the repository helper with
+      dotnet run --project .\tools\Rehau.TokenHelper from the repository root.
+      Sign in on accounts.rehau.com using the generated browser URL and complete
+      email verification manually. Paste the full final image redirect URL into
+      the same running helper. Copy its access token value here and its refresh
+      token below. See manual.md for detailed steps. Save and restart the add-on
+      to validate the pair. Do not share tokens or terminal transcripts.
+  rehau_refresh_token:
+    name: REHAU refresh token (required)
+    description: >-
+      Copy the complete refresh_token value from the same token-srv/token
+      response as your access token, without quotes. Both tokens are required.
+      Save and restart after changing them. The bridge renews tokens before
+      expiry and stores the renewed pair durably in /data/rehau-tokens.json.
+      Check sensor.rehau_token_status: error=true and error_text explain failed
+      validation or renewal. Obtain a new pair by manual browser login if
+      renewal is rejected; there is no automatic password or mailbox login.
+  token_refresh_interval:
+    name: Maximum token renewal interval (seconds)
+    description: >-
+      Upper bound on renewal timing. The backend schedules renewal earlier when
+      needed to renew before the access token expires.
+  api_username:
+    name: API/Web UI administrator username
+    description: >-
+      Separate local administrator login for the REST API and Web UI, not your
+      REHAU account email.
+  api_password:
+    name: API/Web UI administrator password
+    description: >-
+      Separate local administrator password. Set a strong password; never use
+      a REHAU access or refresh token here.
+  jwt_secret:
+    name: API/Web UI JWT signing secret
+    description: >-
+      Set a long random secret to protect local API/Web UI login sessions.
+      This is unrelated to REHAU cloud tokens.

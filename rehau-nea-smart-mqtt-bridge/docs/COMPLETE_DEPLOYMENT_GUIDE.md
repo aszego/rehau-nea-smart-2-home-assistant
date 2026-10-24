@@ -86,11 +86,9 @@ The server will start with all new features enabled!
 
 ## ✅ What's New
 
-### 1. OAuth2 POP3 Authentication
-- Gmail OAuth2 support
-- Outlook/Office365 OAuth2 support
-- Automatic fallback to basic auth
-- See `docs/oauth2-setup.md` for configuration
+### 1. Renewable REHAU Tokens
+
+[Obtain the access/refresh pair manually](../../docs/configuration.md#obtaining-the-token-pair). Configure both tokens and your REHAU email, then restart for immediate validation. Renewal is scheduled before expiry and saved in `/data/rehau-tokens.json`. Persist `/data` in Docker. API/Web UI admin login remains separate.
 
 ### 2. PWA Support
 - Installable as standalone app
@@ -132,53 +130,13 @@ The server will start with all new features enabled!
 5. Turn off WiFi to test offline indicator
 6. Pull down from top to test pull-to-refresh
 
-### Test OAuth2 (Optional)
+### Test Token Validation
 
-1. Follow `docs/oauth2-setup.md`
-2. Run token generator scripts:
-   - `python scripts/get-gmail-oauth2-token.py` (Gmail)
-   - `python scripts/get-outlook-oauth2-token.py` (Outlook)
-3. Add credentials to `.env`
-4. Restart server
-5. Trigger 2FA to test OAuth2 authentication
-
----
+Restart after saving the token pair and check `sensor.rehau_token_status` `error` and `error_text`. Use a persistent token store and verify renewal survives restarts.
 
 ## 📝 Configuration
 
-### Enable OAuth2 for Gmail
-
-Add to `.env`:
-```env
-POP3_PROVIDER=gmail
-POP3_EMAIL=your.email@gmail.com
-POP3_OAUTH2_CLIENT_ID=your-client-id.apps.googleusercontent.com
-POP3_OAUTH2_CLIENT_SECRET=your-client-secret
-POP3_OAUTH2_REFRESH_TOKEN=your-refresh-token
-```
-
-### Enable OAuth2 for Outlook
-
-Add to `.env`:
-```env
-POP3_PROVIDER=outlook
-POP3_EMAIL=your.email@outlook.com
-POP3_OAUTH2_CLIENT_ID=your-client-id
-POP3_OAUTH2_CLIENT_SECRET=your-client-secret
-POP3_OAUTH2_REFRESH_TOKEN=your-refresh-token
-POP3_OAUTH2_TENANT_ID=common
-```
-
-### Continue Using Basic Auth
-
-No changes needed:
-```env
-POP3_PROVIDER=basic
-POP3_EMAIL=your.email@gmx.com
-POP3_PASSWORD=your_password
-```
-
----
+Use [.env.example](../.env.example) and the [current configuration guide](../../docs/configuration.md). Only REHAU email and access/refresh tokens are accepted for cloud authentication.
 
 ## 🎯 Verification Checklist
 
@@ -192,7 +150,6 @@ After deployment, verify:
 - [ ] Offline indicator works (turn off WiFi)
 - [ ] Pull-to-refresh works (pull down from top)
 - [ ] Buttons vibrate on mobile (haptic feedback)
-- [ ] OAuth2 works (if configured)
 
 ---
 
@@ -224,21 +181,13 @@ cd ..
 3. Clear browser cache (Ctrl+Shift+Delete)
 4. Hard reload (Ctrl+F5)
 
-### OAuth2 Not Working
+### Token Renewal Fails
 
-1. Verify credentials in `.env`
-2. Check `docs/oauth2-setup.md` for setup steps
-3. Run token generator scripts again
-4. Check server logs for OAuth2 errors
-
----
+Check the token status sensor error attributes and network access. If REHAU rejects refresh, obtain a new pair, replace both fields, Save, and restart. Never share tokens or the token store.
 
 ## 📚 Documentation
 
 - `FEATURE_IMPLEMENTATION_SUMMARY.md` - Complete feature list
-- `docs/oauth2-setup.md` - OAuth2 setup guide
-- `scripts/get-gmail-oauth2-token.py` - Gmail token generator
-- `scripts/get-outlook-oauth2-token.py` - Outlook token generator
 - `.env.example` - Configuration template
 
 ---
@@ -247,11 +196,10 @@ cd ..
 
 All features are implemented and ready to use. The bridge is now a modern, full-featured web application with:
 
-✅ OAuth2 POP3 authentication  
-✅ PWA support (installable app)  
-✅ Pull-to-refresh gesture  
-✅ Haptic feedback  
-✅ Offline indicator  
-✅ Directional logging (ready to integrate)  
+✅ PWA support (installable app)
+✅ Pull-to-refresh gesture
+✅ Haptic feedback
+✅ Offline indicator
+✅ Directional logging (ready to integrate)
 
 Enjoy your enhanced REHAU control system!

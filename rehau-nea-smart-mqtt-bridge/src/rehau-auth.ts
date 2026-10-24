@@ -3,884 +3,156 @@ import * as crypto from 'crypto';
 import logger, { registerObfuscation, debugDump } from './logger';
 import { RehauTokenResponse } from './types';
 import { UserDataParserV2, InstallationDataParserV2, type IInstall } from './parsers';
-import { POP3Client, POP3Config } from './pop3-client';
-import { PlaywrightHttpsClient } from './playwright-https-client';
+import { TokenStore } from './token-store';
 
-/**
- * Type guard to check if an error is an AxiosError
- */
 function isAxiosError(error: unknown): error is AxiosError {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'isAxiosError' in error &&
-    (error as { isAxiosError?: boolean }).isAxiosError === true
-  );
+  return axios.isAxiosError(error);
 }
-
-interface InstallInfo {
-  unique: string;
-  name: string;
-  _id: string;
+interface InstallInfo { unique: string; name: string; _id: string; }
+export interface TokenStatus {
+  state: 'validating' | 'authenticated' | 'refreshing' | 'failed';
+  error: boolean;
+  error_text: string;
 }
-
 class RehauAuthPersistent {
-  private email: string;
-  private password: string;
-  private clientId: string;
-  private accessToken: string | null = null;
-  private refreshToken: string | null = null;
+  private clientId = `app-${crypto.randomUUID()}`;
+  private accessToken: string;
+  private refreshToken: string;
   private tokenExpiry: number | null = null;
   private installs: InstallInfo[] = [];
   private tokenRefreshTimer: NodeJS.Timeout | null = null;
   private tokenRefreshInterval: number;
-  private isCleanedUp: boolean = false;
-  private pop3Client: POP3Client | null = null;
-  private firstLoginTimestamp: number | null = null;
-  private simulatedDisconnectTimer: NodeJS.Timeout | null = null;
-  
-  // Statistics tracking
-  private startTime: number = Date.now();
-  private tokenRefreshCount: number = 0;
-  private fullAuthCount: number = 0;
+  private isCleanedUp = false;
+  private startTime = Date.now();
+  private tokenRefreshCount = 0;
+  private refreshPromise: Promise<boolean> | null = null;
+  private validationPromise: Promise<void> | null = null;
+  private validated = false;
+  private tokenStore: TokenStore;
+  private status: TokenStatus = { state: 'validating', error: false, error_text: '' };
+  private statusListener?: (status: TokenStatus) => void;
 
-  constructor(email: string, password: string, accessToken?: string | null, refreshToken?: string | null) {
-    this.email = email;
-    this.password = password;
-    this.clientId = `app-${crypto.randomUUID()}`;
-    this.accessToken = accessToken || null;
-    this.refreshToken = refreshToken || null;
-    if (this.accessToken) {
-      this.tokenExpiry = this.parseJwtExpiry(this.accessToken);
-      logger.info('Using configured REHAU access token');
-    }
-    this.tokenRefreshInterval = parseInt(process.env.TOKEN_REFRESH_INTERVAL || '21600') * 1000; // Default 6 hours
-    
-    // Setup simulated disconnection timer for testing (if configured)
-    const simulateDisconnectAfter = parseInt(process.env.SIMULATE_DISCONNECT_AFTER_SECONDS || '0');
-    if (simulateDisconnectAfter > 0) {
-      logger.warn(`⚠️ SIMULATE_DISCONNECT_AFTER_SECONDS=${simulateDisconnectAfter} - Will force reauthentication after ${simulateDisconnectAfter} seconds from first login`);
-    }
-    
-    // Initialize POP3 client if configured
-    if (process.env.POP3_EMAIL && process.env.POP3_PASSWORD) {
-      logger.info('POP3 configuration detected - automated 2FA enabled');
-      
-      const pop3Config: POP3Config = {
-        email: process.env.POP3_EMAIL,
-        password: process.env.POP3_PASSWORD,
-        host: process.env.POP3_HOST || 'pop.gmx.com',
-        port: parseInt(process.env.POP3_PORT || '995'),
-        secure: process.env.POP3_SECURE === 'true',
-        debug: process.env.POP3_DEBUG === 'true',
-        timeout: parseInt(process.env.POP3_TIMEOUT || '600000')
-      };
-      
-      this.pop3Client = new POP3Client(pop3Config);
-    } else {
-      logger.warn(
-        'POP3 configuration not found. If 2FA is enabled, authentication will fail. ' +
-        'Please configure POP3_EMAIL and POP3_PASSWORD environment variables.'
-      );
-    }
-  }
-
-  /**
-   * Start automatic token refresh
-   */
-  private startTokenRefresh(): void {
-    if (this.tokenRefreshTimer) {
-      clearInterval(this.tokenRefreshTimer);
-    }
-
-    this.tokenRefreshTimer = setInterval(async () => {
-      try {
-        logger.info('Refreshing token automatically...');
-        await this.refresh();
-        logger.info('Token refreshed successfully');
-      } catch (error) {
-        logger.error('Failed to refresh token:', (error as Error).message);
-        // Try fresh login if refresh fails
-        try {
-          logger.info('Attempting fresh login after refresh failure...');
-          await this.login();
-        } catch (loginError) {
-          logger.error('Fresh login also failed:', (loginError as Error).message);
-        }
-      }
-    }, this.tokenRefreshInterval);
-
-    logger.info(`Token refresh scheduled every ${this.tokenRefreshInterval / 1000} seconds`);
-  }
-
-  /**
-   * Stop automatic token refresh
-   */
-  stopTokenRefresh(): void {
-    if (this.tokenRefreshTimer) {
-      clearInterval(this.tokenRefreshTimer);
-      this.tokenRefreshTimer = null;
-    }
-  }
-
-  /**
-   * Cleanup method to stop timers and release resources
-   * Idempotent: safe to call multiple times
-   */
-  cleanup(): void {
-    if (this.isCleanedUp) {
-      logger.debug('RehauAuthPersistent already cleaned up, skipping');
-      return;
-    }
-    
-    logger.info('Cleaning up RehauAuthPersistent...');
-    this.stopTokenRefresh();
-    
-    // Clear simulated disconnect timer
-    if (this.simulatedDisconnectTimer) {
-      clearTimeout(this.simulatedDisconnectTimer);
-      this.simulatedDisconnectTimer = null;
-    }
-    
-    // Cleanup POP3 connection
-    if (this.pop3Client) {
-      this.pop3Client.disconnect().catch(err => {
-        logger.warn('Error disconnecting POP3 client:', err);
-      });
-      this.pop3Client = null;
-    }
-    
-    // Verify cleanup completed
-    if (this.tokenRefreshTimer !== null) {
-      logger.warn('Token refresh timer was not properly cleaned up');
-    }
-    
-    this.isCleanedUp = true;
-    logger.info('RehauAuthPersistent cleanup completed');
-  }
-
-  /**
-   * Generate PKCE parameters
-   */
-  private generateCodeVerifier(): string {
-    return crypto.randomBytes(32).toString('base64url');
-  }
-
-  private generateCodeChallenge(verifier: string): string {
-    return crypto.createHash('sha256').update(verifier).digest('base64url');
-  }
-
-  private generateNonce(): string {
-    return crypto.randomBytes(16).toString('base64url');
-  }
-
-  private parseJwtExpiry(token: string): number | null {
+  constructor(private email: string, accessToken: string, refreshToken: string, storePath = process.env.REHAU_TOKEN_STORE_PATH) {
+    this.accessToken = accessToken.trim();
+    this.refreshToken = refreshToken.trim();
+    this.tokenStore = new TokenStore(storePath, email, this.accessToken, this.refreshToken);
+    this.tokenRefreshInterval = Number(process.env.TOKEN_REFRESH_INTERVAL || '21600') * 1000;
+    let stored = null;
     try {
-      const parts = token.split('.');
-      if (parts.length !== 3) {
-        return null;
-      }
-
-      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-      if (typeof payload.exp === 'number') {
-        return payload.exp * 1000;
-      }
+      stored = this.tokenStore.load();
     } catch {
-      // Ignore malformed JWT payload
+      logger.warn('Could not read persisted REHAU tokens; validating configured tokens instead');
     }
-
-    return null;
+    if (stored) {
+      this.accessToken = stored.accessToken;
+      this.refreshToken = stored.refreshToken;
+      this.tokenExpiry = stored.tokenExpiry;
+    } else {
+      try {
+        const payload = JSON.parse(Buffer.from(this.accessToken.split('.')[1], 'base64url').toString('utf8'));
+        if (typeof payload.exp === 'number' && Number.isFinite(payload.exp)) this.tokenExpiry = payload.exp * 1000;
+      } catch { /* Opaque tokens are validated by the server. */ }
+    }
+    registerObfuscation('email', email);
   }
 
-  /**
-   * Authenticate with username and password via Playwright browser automation
-   */
-  async login(): Promise<boolean> {
-    // Use Playwright for interactive browser-based authentication
-    const client = new PlaywrightHttpsClient();
-    let browserCleaned = false;
-    
+  onTokenStatus(listener: (status: TokenStatus) => void): void {
+    this.statusListener = listener;
+    listener({ ...this.status });
+  }
+
+  private setStatus(state: TokenStatus['state'], errorText = ''): void {
+    this.status = { state, error: state === 'failed', error_text: errorText };
+    this.statusListener?.({ ...this.status });
+  }
+
+  private errorMessage(error: unknown): string {
+    // Axios configs and server bodies can contain credentials; never publish them.
+    if (isAxiosError(error)) return error.response ? `REHAU request failed (HTTP ${error.response.status})` : 'REHAU request failed (network error or timeout)';
+    return error instanceof Error ? error.message : 'REHAU token validation or renewal failed';
+  }
+
+  private startTokenRefresh(retry = false): void {
+    this.stopTokenRefresh();
+    if (this.isCleanedUp) return;
+    const untilExpiry = this.tokenExpiry === null ? this.tokenRefreshInterval : this.tokenExpiry - Date.now() - 300000;
+    const delay = retry ? 60000 : Math.max(1000, Math.min(this.tokenRefreshInterval, untilExpiry));
+    this.tokenRefreshTimer = setTimeout(() => {
+      this.tokenRefreshTimer = null;
+      void this.refresh().catch(() => undefined);
+    }, delay);
+  }
+
+  stopTokenRefresh(): void {
+    if (this.tokenRefreshTimer) clearTimeout(this.tokenRefreshTimer);
+    this.tokenRefreshTimer = null;
+  }
+
+  cleanup(): void {
+    this.isCleanedUp = true;
+    this.stopTokenRefresh();
+  }
+
+  refresh(): Promise<boolean> {
+    if (!this.refreshPromise) this.refreshPromise = this.renewToken().finally(() => { this.refreshPromise = null; });
+    return this.refreshPromise;
+  }
+
+  private async renewToken(): Promise<boolean> {
+    this.setStatus('refreshing');
     try {
-      // Register email for obfuscation before logging
-      registerObfuscation('email', this.email);
-      
-      logger.info('=== Starting Playwright-based authentication ===');
-      logger.info(`Email: ${this.email}`);
-      
-      // Generate PKCE parameters
-      const codeVerifier = this.generateCodeVerifier();
-      const codeChallenge = this.generateCodeChallenge(codeVerifier);
-      const nonce = this.generateNonce();
-      
-      logger.debug('PKCE Parameters:');
-      logger.debug('  Code Verifier:', codeVerifier.substring(0, 10) + '...');
-      logger.debug('  Code Challenge:', codeChallenge.substring(0, 10) + '...');
-      logger.debug('  Nonce:', nonce.substring(0, 10) + '...');
-
-      const clientId = '3f5d915d-a06f-42b9-89cc-2e5d63aa96f1';
-      const redirectUri = 'https://rehau-smartheating-email-gallery-public.s3.eu-central-1.amazonaws.com/publicimages/preprod/rehau.jpg';
-      const scope = 'email roles profile offline_access groups';
-
-      // Step 1: Build OAuth authorization URL
-      logger.info('Step 1: Building OAuth authorization URL...');
-      const authParams = new URLSearchParams({
-        client_id: clientId,
-        scope: scope,
-        response_type: 'code',
-        redirect_uri: redirectUri,
-        nonce: nonce,
-        code_challenge_method: 'S256',
-        code_challenge: codeChallenge
-      });
-
-      const authUrl = `https://accounts.rehau.com/authz-srv/authz?${authParams.toString()}`;
-      logger.info(`Authorization URL generated: ${authUrl}`);
-      
-      // Step 2: Navigate to authorization URL
-      logger.info('Step 2: Navigating to authorization page...');
-      await client.navigate(authUrl);
-      logger.info('Authorization page loaded');
-      
-      // Step 3: Wait for login form elements
-      logger.info('Step 3: Waiting for login form elements...');
-      await client.waitForElementById('email', 30000);
-      await client.waitForElementById('password', 30000);
-      logger.info('Login form elements found');
-      
-      // Step 4: Fill in credentials
-      logger.info('Step 4: Filling in credentials...');
-      await client.typeById('email', this.email);
-      logger.info('Email entered');
-      await client.typeById('password', this.password);
-      logger.info('Password entered');
-      
-      // Step 5: Submit login form
-      logger.info('Step 5: Submitting login form...');
-      await client.clickSubmit();
-      logger.info('Login form submitted');
-      
-      // Step 6: Wait for either MFA code input or redirect to final URL
-      logger.info('Step 6: Waiting for response (MFA or redirect)...');
-      
-      let authCode: string | null = null;
-      
-      try {
-        // Try to wait for MFA code input (with shorter timeout)
-        logger.info('Checking for MFA requirement...');
-        await client.waitForElementById('code', 10000);
-        logger.info('MFA required - 2FA code input detected');
-        
-        // Step 7: Handle MFA flow
-        logger.info('Step 7: Handling MFA flow...');
-        authCode = await this.handleMfaFlowWithPlaywright(client);
-        
-      } catch (error: any) {
-        // No MFA required - check if we already have the redirect
-        logger.info('No MFA required or already redirected');
-        const currentUrl = client.getCurrentUrl();
-        logger.info(`Current URL: ${currentUrl}`);
-        
-        if (currentUrl.startsWith(redirectUri)) {
-          // Already redirected - extract code
-          const url = new URL(currentUrl);
-          authCode = url.searchParams.get('code');
-          logger.info('Authorization code extracted from redirect URL');
-        } else {
-          // Wait for redirect to happen
-          logger.info('Waiting for redirect to final URL...');
-          const finalUrl = await client.waitForUrlPrefix(redirectUri, 60000);
-          const url = new URL(finalUrl);
-          authCode = url.searchParams.get('code');
-          logger.info('Authorization code extracted after redirect');
-        }
-      }
-      
-      if (!authCode) {
-        throw new Error('Failed to obtain authorization code');
-      }
-      
-      logger.info(`Authorization code obtained: ${authCode.substring(0, 8)}...`);
-
-      // Step 8: Exchange code for tokens using Playwright (maintains browser session context)
-      logger.info('Step 8: Exchanging authorization code for tokens via browser...');
-      logger.debug(`Authorization code length: ${authCode.length}`);
-      logger.debug(`Code verifier length: ${codeVerifier.length}`);
-      
-      const tokenPayload = {
-        grant_type: 'authorization_code',
-        client_id: clientId,
-        redirect_uri: redirectUri,
-        code_verifier: codeVerifier,
-        code: authCode
-      };
-      
-      logger.debug('Token exchange request:', {
-        url: 'https://accounts.rehau.com/token-srv/token',
-        grant_type: tokenPayload.grant_type,
-        client_id: tokenPayload.client_id,
-        redirect_uri: tokenPayload.redirect_uri,
-        code_length: authCode.length,
-        code_verifier_length: codeVerifier.length,
-        code_verifier_preview: codeVerifier.substring(0, 10) + '...',
-        auth_code_preview: authCode.substring(0, 10) + '...'
-      });
-      
-      // Use Playwright to make token exchange request (preserves browser session/cookies)
-      logger.debug('Making token exchange request via browser...');
-      const tokenResponse = await client.request('https://accounts.rehau.com/token-srv/token', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json, text/plain, */*'
-        },
-        body: JSON.stringify(tokenPayload)
-      });
-      
-      logger.debug(`Token exchange response status: ${tokenResponse.status}`);
-      logger.debug(`Response body length: ${tokenResponse.body.length}`);
-      
-      if (tokenResponse.status !== 200) {
-        logger.error('=== Token Exchange Failed ===');
-        logger.error('HTTP Status:', tokenResponse.status);
-        logger.error('Response Headers:', JSON.stringify(tokenResponse.headers, null, 2));
-        logger.error('Response Body:', tokenResponse.body);
-        throw new Error(`Token exchange failed with status ${tokenResponse.status}: ${tokenResponse.body}`);
-      }
-      
-      let parsedTokenResponse: RehauTokenResponse;
-      try {
-        parsedTokenResponse = JSON.parse(tokenResponse.body);
-        logger.debug('Token response parsed successfully');
-      } catch (parseError) {
-        logger.error('Failed to parse token response:', tokenResponse.body);
-        throw new Error(`Failed to parse token response: ${parseError}`);
-      }
-
-      if (!parsedTokenResponse.access_token || !parsedTokenResponse.refresh_token) {
-        logger.error('Invalid token response - missing tokens:', JSON.stringify(parsedTokenResponse, null, 2));
-        throw new Error('Token exchange succeeded but response is missing access_token or refresh_token');
-      }
-
-      this.accessToken = parsedTokenResponse.access_token;
-      this.refreshToken = parsedTokenResponse.refresh_token;
-      this.tokenExpiry = Date.now() + (parsedTokenResponse.expires_in * 1000);
-      
-      // Increment full authentication counter
-      this.fullAuthCount++;
-
-      logger.info('Tokens obtained successfully');
-      logger.debug(`Token expiry: ${new Date(this.tokenExpiry).toISOString()}`);
-      
-      // Record first login timestamp and setup simulated disconnect timer
-      if (!this.firstLoginTimestamp) {
-        this.firstLoginTimestamp = Date.now();
-        const simulateDisconnectAfter = parseInt(process.env.SIMULATE_DISCONNECT_AFTER_SECONDS || '0');
-        if (simulateDisconnectAfter > 0) {
-          logger.warn(`⏱️ First login completed - simulated disconnect will trigger in ${simulateDisconnectAfter} seconds`);
-          
-          // Setup timer to force reauthentication
-          this.simulatedDisconnectTimer = setTimeout(async () => {
-            logger.warn(`🔄 SIMULATE_DISCONNECT_AFTER_SECONDS triggered - forcing reauthentication now`);
-            
-            // Invalidate refresh token to force fresh login (simulating server-side token revocation)
-            logger.warn('⚠️ Invalidating refresh token to simulate server disconnect...');
-            this.refreshToken = null;
-            
-            try {
-              // Try refresh first (will fail because we nulled the refresh token)
-              logger.info('Attempting token refresh (simulated disconnect)...');
-              await this.refresh();
-              logger.info('✅ Token refresh successful');
-            } catch (refreshError) {
-              logger.warn('⚠️ Token refresh failed, attempting fresh login...');
-              try {
-                await this.login();
-                logger.info('✅ Fresh login successful');
-              } catch (loginError) {
-                logger.error('❌ Fresh login failed:', (loginError as Error).message);
-              }
-            }
-          }, simulateDisconnectAfter * 1000);
-        }
-      }
-
-      // Cleanup browser AFTER token exchange completes
-      logger.info('Cleaning up browser resources...');
-      await client.cleanup();
-      browserCleaned = true;
-      logger.info('Browser closed');
-
-      // Step 9: Get user info
-      logger.info('Step 9: Fetching user information...');
-      await this.getUserInfo();
-
-      logger.info('=== Authentication completed successfully ===');
+      if (!this.refreshToken) throw new Error('REHAU refresh token is required');
+      const response = await axios.post<RehauTokenResponse>(
+        'https://accounts.rehau.com/token-srv/token',
+        { grant_type: 'refresh_token', client_id: '3f5d915d-a06f-42b9-89cc-2e5d63aa96f1', refresh_token: this.refreshToken },
+        { headers: { 'Content-Type': 'application/json' }, timeout: 15000 }
+      );
+      const tokens = response.data;
+      if (typeof tokens.access_token !== 'string' || !tokens.access_token ||
+          (tokens.refresh_token !== undefined && (typeof tokens.refresh_token !== 'string' || !tokens.refresh_token)) ||
+          !Number.isFinite(tokens.expires_in) || tokens.expires_in <= 0) throw new Error('Invalid REHAU token renewal response');
+      this.accessToken = tokens.access_token;
+      this.refreshToken = tokens.refresh_token || this.refreshToken;
+      this.tokenExpiry = Date.now() + tokens.expires_in * 1000;
+      this.tokenStore.save({ accessToken: this.accessToken, refreshToken: this.refreshToken, tokenExpiry: this.tokenExpiry });
+      this.tokenRefreshCount++;
+      this.setStatus('authenticated');
+      this.startTokenRefresh();
       return true;
     } catch (error) {
-      logger.error('=== Authentication failed ===');
-      
-      if (isAxiosError(error)) {
-        logger.error('Error Type: Axios HTTP Error');
-        logger.error('HTTP Status:', error.response?.status || 'N/A');
-        logger.error('Status Text:', error.response?.statusText || 'N/A');
-        logger.error('Response Data:', error.response?.data ? JSON.stringify(error.response.data, null, 2) : 'N/A');
-        logger.error('Request URL:', error.config?.url || 'N/A');
-        logger.error('Request Method:', error.config?.method?.toUpperCase() || 'N/A');
-        
-        if (error.response?.status === 401) {
-          logger.error('Authentication rejected - Invalid username or password');
-        } else if (error.response?.status === 400) {
-          logger.error('Bad request - Check authorization code and PKCE parameters');
-        } else if (error.response?.status === 403) {
-          logger.error('Forbidden - Access denied');
-        } else if (!error.response) {
-          logger.error('No response received - Network error or request failed to send');
-        }
-      } else if (error instanceof Error) {
-        logger.error('Error Type:', error.constructor.name);
-        logger.error('Error Message:', error.message);
-        if (error.stack) {
-          logger.error('Stack Trace:', error.stack);
-        }
-      } else {
-        logger.error('Unknown Error Type:', typeof error);
-        logger.error('Error:', JSON.stringify(error, null, 2));
-      }
-      
-      throw error;
-    } finally {
-      // Only cleanup if we haven't already done so in the success path
-      if (!browserCleaned) {
-        try {
-          await client.cleanup();
-          logger.debug('Browser cleanup completed (error path)');
-        } catch (cleanupError) {
-          logger.warn('Browser cleanup failed (non-critical):', cleanupError);
-        }
-      }
+      this.setStatus('failed', this.errorMessage(error));
+      logger.error(this.status.error_text);
+      this.startTokenRefresh(true);
+      throw new Error(this.status.error_text);
     }
   }
 
-  /**
-   * Handle MFA flow with Playwright and POP3 email polling
-   */
-  private async handleMfaFlowWithPlaywright(client: PlaywrightHttpsClient): Promise<string> {
-    logger.info('=== Starting MFA flow with Playwright ===');
-    
-    if (!this.pop3Client) {
-      throw new Error(
-        'POP3 client not configured. Please set POP3_EMAIL, POP3_PASSWORD, ' +
-        'and other POP3_* environment variables for automated 2FA.'
-      );
-    }
-    
-    let verificationEmail: any = null;
-    
+  isTokenExpired(): boolean {
+    return this.tokenExpiry === null || Date.now() >= this.tokenExpiry - 300000;
+  }
+
+  ensureValidToken(): Promise<void> {
+    if (!this.validationPromise) this.validationPromise = this.validateToken().finally(() => { this.validationPromise = null; });
+    return this.validationPromise;
+  }
+
+  private async validateToken(): Promise<void> {
     try {
-      const redirectUri = 'https://rehau-smartheating-email-gallery-public.s3.eu-central-1.amazonaws.com/publicimages/preprod/rehau.jpg';
-      
-      // Step 1: Get current email count (baseline)
-      logger.info('Step 1: Getting current email count...');
-      await this.pop3Client.getMessageCount();
-      logger.info('Baseline email count established');
-      
-      // Step 2: Wait for verification email
-      logger.info('Step 2: Waiting for verification email from REHAU...');
-      const timeout = parseInt(process.env.POP3_TIMEOUT || '600000');
-      const fromAddress = process.env.POP3_FROM_ADDRESS || 'noreply@accounts.rehau.com';
-      verificationEmail = await this.pop3Client.waitForNewMessage(
-        fromAddress,
-        timeout
-      );
-      
-      if (!verificationEmail) {
-        throw new Error('Timeout waiting for verification email');
+      if (!this.accessToken || !this.refreshToken) throw new Error('REHAU access and refresh tokens are required');
+      if (!this.validated || this.isTokenExpired() || this.status.error) await this.refresh();
+      if (!this.validated) {
+        this.setStatus('validating');
+        await this.getUserInfo();
+        this.validated = true;
       }
-      
-      logger.info('Verification email received');
-      
-      // Step 3: Extract verification code from email
-      logger.info('Step 3: Extracting verification code from email...');
-      const verificationCode = this.pop3Client.extractVerificationCode(
-        verificationEmail.body
-      );
-      
-      if (!verificationCode) {
-        throw new Error('Failed to extract verification code from email');
-      }
-      
-      logger.info(`Verification code extracted: ${verificationCode}`);
-      
-      // Step 4: Enter verification code in browser
-      logger.info('Step 4: Entering verification code in browser...');
-      await client.typeById('code', verificationCode);
-      logger.info('Verification code entered');
-      
-      // Step 5: Submit verification form
-      logger.info('Step 5: Submitting verification form...');
-      await client.clickSubmit();
-      logger.info('Verification form submitted');
-      
-      // Step 6: Wait for redirect to final URL with authorization code
-      logger.info('Step 6: Waiting for redirect to final URL...');
-      const finalUrl = await client.waitForUrlPrefix(redirectUri, 60000);
-      logger.info(`Redirected to: ${finalUrl}`);
-      
-      // Step 7: Extract authorization code from URL
-      logger.info('Step 7: Extracting authorization code from URL...');
-      const url = new URL(finalUrl);
-      const authCode = url.searchParams.get('code');
-      
-      if (!authCode) {
-        throw new Error('No authorization code found in redirect URL');
-      }
-      
-      logger.info(`Authorization code obtained: ${authCode.substring(0, 8)}...`);
-      logger.info('=== MFA flow completed successfully ===');
-      
-      // Step 8: Delete verification email after successful MFA
-      if (verificationEmail && verificationEmail.messageNumber) {
-        try {
-          logger.info('Step 8: Deleting verification email from server...');
-          await this.pop3Client.deleteMessage(verificationEmail.messageNumber);
-          logger.info('Verification email deleted successfully');
-        } catch (deleteError) {
-          logger.warn('Failed to delete verification email (non-critical):', deleteError);
-        }
-      }
-      
-      return authCode;
-      
+      this.setStatus('authenticated');
+      this.startTokenRefresh();
     } catch (error) {
-      logger.error('=== MFA flow failed ===');
-      logger.error('Error:', error);
-      throw error;
-    } finally {
-      // Cleanup POP3 connection
-      if (this.pop3Client) {
-        await this.pop3Client.disconnect();
-      }
+      this.setStatus('failed', this.errorMessage(error));
+      throw new Error(this.status.error_text);
     }
   }
 
-  /**
-   * Handle MFA flow with POP3 email polling (legacy method for non-Playwright flows)
-   * @deprecated This method is no longer used by the Playwright-based login flow
-   * Kept for reference and potential fallback scenarios
-   */
-  // private async handleMfaFlowWithPOP3(
-  //   trackId: string,
-  //   sub: string,
-  //   requestId: string,
-  //   client: any
-  // ): Promise<string> {
-  //   logger.info('Starting automated MFA flow with POP3 email polling');
-    
-  //   if (!this.pop3Client) {
-  //     throw new Error(
-  //       'POP3 client not configured. Please set POP3_EMAIL, POP3_PASSWORD, ' +
-  //       'and other POP3_* environment variables.'
-  //     );
-  //   }
-    
-  //   try {
-  //     // Step 1: Get current email count
-  //     logger.debug('Step 1: Getting current email count...');
-  //     await this.pop3Client.getMessageCount();
-      
-  //     // Step 1.5: Visit the MFA page to establish session context
-  //     logger.debug('=== VISITING MFA PAGE ===');
-  //     const mfaPageUrl = `https://accounts.rehau.com/rehau-ui/mfa?track_id=${trackId}&sub=${sub}&q=${sub}&requestId=${requestId}`;
-  //     logger.debug('URL: GET', mfaPageUrl);
-      
-  //     await client.get(mfaPageUrl, {
-  //       headers: {
-  //         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-  //         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  //         'Referer': `https://accounts.rehau.com/login-srv/login`
-  //       }
-  //     });
-      
-  //     logger.debug('MFA page visited successfully');
-      
-  //     // Step 2: Check configured MFA methods
-  //     logger.debug('=== CONFIGURED METHODS REQUEST ===');
-  //     logger.debug('URL: POST https://accounts.rehau.com/verification-srv/v2/setup/public/configured/list');
-  //     const configuredPayload = { request_id: requestId, sub: sub };
-  //     logger.debug('Payload:', JSON.stringify(configuredPayload));
-      
-  //     let configuredResponse;
-  //     try {
-  //       configuredResponse = await client.post(
-  //         'https://accounts.rehau.com/verification-srv/v2/setup/public/configured/list',
-  //         JSON.stringify(configuredPayload),
-  //         {
-  //           headers: {
-  //             'Content-Type': 'application/json',
-  //             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-  //             'Accept': 'application/json, text/plain, */*',
-  //             'Origin': 'https://accounts.rehau.com',
-  //             'Referer': `https://accounts.rehau.com/rehau-ui/mfa?track_id=${trackId}&sub=${sub}&q=${sub}&requestId=${requestId}`
-  //           }
-  //         }
-  //       );
-  //     } catch (error: any) {
-  //       logger.error('=== CONFIGURED METHODS ERROR ===');
-  //       logger.error('Error message:', error.message);
-  //       logger.error('Error response status:', error.response?.status);
-  //       logger.error('Error response data:', JSON.stringify(error.response?.data));
-  //       throw error;
-  //     }
-      
-  //     logger.debug('=== CONFIGURED METHODS RESPONSE ===');
-  //     logger.debug('Response object exists:', !!configuredResponse);
-  //     logger.debug('HTTP Status:', String(configuredResponse.status));
-      
-  //     // Log the entire response structure
-  //     const responseData = configuredResponse.data;
-  //     logger.debug('Response data exists:', !!responseData);
-      
-  //     if (responseData) {
-  //       logger.debug('Configured methods response received', { success: responseData.success, status: responseData.status });
-  //     }
-      
-  //     // Extract medium_id from response - the actual data is in response.data.data
-  //     const actualData = configuredResponse.data?.data || configuredResponse.data;
-  //     const mediumId = this.extractMediumId(actualData);
-  //     logger.debug(`Medium ID: ${mediumId}`);
-      
-  //     // Step 3: Initiate email verification
-  //     logger.debug('=== INITIATE EMAIL REQUEST ===');
-  //     logger.debug('URL: POST https://accounts.rehau.com/verification-srv/v2/authenticate/initiate/email');
-  //     const initiatePayload = {
-  //       sub: sub,
-  //       medium_id: mediumId,
-  //       request_id: requestId,
-  //       usage_type: 'MULTIFACTOR_AUTHENTICATION'
-  //     };
-  //     logger.debug('Payload:', JSON.stringify(initiatePayload));
-      
-  //     let initiateResponse;
-  //     try {
-  //       initiateResponse = await client.post(
-  //         'https://accounts.rehau.com/verification-srv/v2/authenticate/initiate/email',
-  //         JSON.stringify(initiatePayload),
-  //         {
-  //           headers: {
-  //             'Content-Type': 'application/json',
-  //             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-  //             'Accept': 'application/json, text/plain, */*',
-  //             'Origin': 'https://accounts.rehau.com',
-  //             'Referer': `https://accounts.rehau.com/rehau-ui/mfa?track_id=${trackId}&sub=${sub}&q=${sub}&requestId=${requestId}`
-  //           }
-  //         }
-  //       );
-  //     } catch (error: any) {
-  //       logger.error('=== INITIATE EMAIL ERROR ===');
-  //       logger.error('Error message:', error.message);
-  //       logger.error('Error response status:', error.response?.status);
-  //       logger.error('Error response data:', JSON.stringify(error.response?.data));
-  //       throw error;
-  //     }
-      
-  //     logger.debug('=== INITIATE EMAIL RESPONSE ===');
-  //     logger.debug('Status:', initiateResponse.status);
-  //     logger.debug('Initiate response data:', JSON.stringify(initiateResponse.data));
-      
-  //     const exchangeId = this.extractExchangeId(initiateResponse.data);
-  //     logger.debug(`Exchange ID: ${exchangeId}`);
-  //     logger.info('Verification email sent. Waiting for email...');
-      
-  //     // Step 3.5: Visit the MFA verify page to establish session
-  //     logger.debug('=== VISITING MFA VERIFY PAGE ===');
-  //     const mfaVerifyUrl = `https://accounts.rehau.com/rehau-ui/mfaverify/${exchangeId}/email/${sub}/${mediumId}/${requestId}`;
-  //     logger.debug('MFA verify URL:', mfaVerifyUrl);
-      
-  //     try {
-  //       const verifyPageResponse = await client.get(mfaVerifyUrl, {
-  //         headers: {
-  //           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-  //           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  //           'Referer': `https://accounts.rehau.com/rehau-ui/mfa?track_id=${trackId}&sub=${sub}&q=${sub}&requestId=${requestId}`
-  //         }
-  //       });
-  //       logger.debug('MFA verify page visited successfully, status:', verifyPageResponse.status);
-  //     } catch (error: any) {
-  //       logger.error('Failed to visit MFA verify page:', error.message);
-  //       logger.error('Response status:', error.response?.status);
-  //       throw error;
-  //     }
-      
-  //     // Step 4: Wait for verification email
-  //     logger.debug('Step 4: Polling POP3 for verification email...');
-  //     const timeout = parseInt(process.env.POP3_TIMEOUT || '600000');
-  //     const verificationEmail = await this.pop3Client.waitForNewMessage(
-  //       'noreply@accounts.rehau.com',
-  //       timeout
-  //     );
-      
-  //     if (!verificationEmail) {
-  //       throw new Error('Timeout waiting for verification email');
-  //     }
-      
-  //     logger.info('Verification email received');
-      
-  //     // Step 5: Extract verification code
-  //     logger.debug('Step 5: Extracting verification code from email...');
-  //     const verificationCode = this.pop3Client.extractVerificationCode(
-  //       verificationEmail.body
-  //     );
-      
-  //     if (!verificationCode) {
-  //       throw new Error('Failed to extract verification code from email');
-  //     }
-      
-  //     logger.info(`Verification code extracted: ${verificationCode}`);
-      
-  //     // Step 6: Verify the code
-  //     logger.debug('=== VERIFY CODE REQUEST ===');
-  //     logger.debug('URL: POST https://accounts.rehau.com/verification-srv/v2/authenticate/authenticate/email');
-      
-  //     const verifyPayload = {
-  //       pass_code: verificationCode,
-  //       exchange_id: exchangeId,
-  //       sub: sub
-  //     };
-  //     logger.debug('Verify code payload:', JSON.stringify(verifyPayload));
-      
-  //     let verifyResponse;
-  //     try {
-  //       verifyResponse = await client.post(
-  //         'https://accounts.rehau.com/verification-srv/v2/authenticate/authenticate/email',
-  //         JSON.stringify(verifyPayload),
-  //         {
-  //           headers: {
-  //             'Content-Type': 'application/json',
-  //             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-  //             'Accept': '*/*',
-  //             'Origin': 'https://accounts.rehau.com',
-  //             'Referer': `https://accounts.rehau.com/rehau-ui/mfaverify/${exchangeId}/email/${sub}/${mediumId}/${requestId}`
-  //           }
-  //         }
-  //       );
-  //     } catch (error: any) {
-  //       logger.error('=== VERIFY CODE ERROR ===');
-  //       logger.error('Error message:', error.message);
-  //       logger.error('Error response status:', error.response?.status);
-  //       logger.error('Error response data:', JSON.stringify(error.response?.data));
-  //       throw new Error(`Failed to verify code: ${error.response?.data?.error?.error || error.message}`);
-  //     }
-      
-  //     logger.debug('=== VERIFY CODE RESPONSE ===');
-  //     logger.debug('Verify response:', JSON.stringify(verifyResponse.data));
-      
-  //     const statusId = verifyResponse.data?.data?.status_id || verifyResponse.data?.status_id;
-  //     if (!statusId) {
-  //       logger.error('No status_id in verify response:', JSON.stringify(verifyResponse.data));
-  //       throw new Error('Failed to get status_id from verify response');
-  //     }
-  //     logger.debug(`Status ID: ${statusId}`);
-      
-  //     // Step 7: Complete authentication with form POST
-  //     logger.debug('Step 7: Completing authentication...');
-  //     const continueParams = new URLSearchParams({
-  //       status_id: statusId,
-  //       track_id: trackId,
-  //       requestId: requestId,
-  //       sub: sub,
-  //       verificationType: 'EMAIL'
-  //     });
-      
-  //     const continueResponse = await client.post(
-  //       `https://accounts.rehau.com/login-srv/precheck/continue/${trackId}`,
-  //       continueParams.toString(),
-  //       {
-  //         headers: {
-  //           'Content-Type': 'application/x-www-form-urlencoded'
-  //         },
-  //         maxRedirects: 5
-  //       }
-  //     );
-      
-  //     // Step 8: Extract authorization code from final URL
-  //     logger.debug('Step 8: Extracting authorization code...');
-  //     logger.debug('Continue response status:', continueResponse.statusCode);
-  //     logger.debug('Final URL:', continueResponse.finalUrl);
-      
-  //     const finalUrl = new URL(continueResponse.finalUrl);
-  //     const authCode = finalUrl.searchParams.get('code');
-      
-  //     if (!authCode) {
-  //       logger.error('No authorization code in final URL:', continueResponse.finalUrl);
-  //       throw new Error('No authorization code found in redirect URL');
-  //     }
-      
-  //     logger.info('MFA flow completed successfully');
-  //     return authCode;
-      
-  //   } catch (error) {
-  //     logger.error('MFA flow failed:', error);
-  //     throw error;
-  //   } finally {
-  //     // Cleanup POP3 connection
-  //     if (this.pop3Client) {
-  //       await this.pop3Client.disconnect();
-  //     }
-  //   }
-  // }
-
-  /**
-   * Extract medium_id from configured MFA methods response
-   */
-  // private extractMediumId(responseData: any): string {
-  //   logger.debug('Extracting medium_id from configured methods');
-    
-  //   // The actual structure is: { configured_list: [ { type: 'EMAIL', mediums: [...] } ] }
-  //   if (responseData.configured_list && Array.isArray(responseData.configured_list)) {
-  //     const emailConfig = responseData.configured_list.find((item: any) => item.type === 'EMAIL');
-  //     if (emailConfig && emailConfig.mediums && Array.isArray(emailConfig.mediums) && emailConfig.mediums.length > 0) {
-  //       const mediumId = emailConfig.mediums[0].medium_id || emailConfig.mediums[0].id;
-  //       logger.debug('Found medium_id:', mediumId);
-  //       return mediumId;
-  //     }
-  //   }
-    
-  //   throw new Error('No email medium found in configured MFA methods');
-  // }
-
-  /**
-   * Extract exchange_id from initiate email response
-   */
-  // private extractExchangeId(responseData: any): string {
-  //   logger.debug('Extracting exchange_id from response');
-    
-  //   // The response structure is: responseData.data.exchange_id.exchange_id (string)
-  //   if (responseData.data && responseData.data.exchange_id) {
-  //     const exchangeIdObj = responseData.data.exchange_id;
-      
-  //     // Extract the actual exchange_id string from the object
-  //     if (typeof exchangeIdObj === 'string') {
-  //       logger.debug('Extracted exchange_id:', exchangeIdObj);
-  //       return exchangeIdObj;
-  //     } else if (exchangeIdObj.exchange_id) {
-  //       logger.debug('Extracted exchange_id:', exchangeIdObj.exchange_id);
-  //       return exchangeIdObj.exchange_id;
-  //     }
-  //   }
-    
-  //   // Check for status_id as fallback
-  //   if (responseData.data && responseData.data.status_id) {
-  //     logger.debug('Using status_id as exchange_id:', responseData.data.status_id);
-  //     return responseData.data.status_id;
-  //   }
-    
-  //   logger.error('No exchange_id found in initiate email response');
-  //   throw new Error('No exchange_id found in initiate email response');
-  // }
-
-  /**
-   * Get user information and installations
-   */
   private async getUserInfo(): Promise<void> {
     try {
       logger.debug('Fetching user data...');
@@ -895,7 +167,7 @@ class RehauAuthPersistent {
 
       const response = await axios.get(
         `https://api.nea2aws.aws.rehau.cloud/v2/users/${this.email}/getUserData`,
-        { headers }
+        { headers, timeout: 15000 }
       );
 
       // Log HTTP response details
@@ -917,184 +189,8 @@ class RehauAuthPersistent {
       logger.info(`Found ${this.installs.length} installation(s)`);
       logger.debug('Parsed user data:', parser.getSummary(parsed));
     } catch (error: unknown) {
-      if (isAxiosError(error)) {
-        logger.error(`getUserData HTTP Error: status=${error.response?.status}`);
-        logger.error('Error response headers:', error.response?.headers);
-        logger.error('Error response body:', error.response?.data);
-      }
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.warn('Failed to get user info:', errorMessage);
+      throw new Error(this.errorMessage(error));
     }
-  }
-
-  /**
-   * Refresh access token using PlaywrightHttpsClient
-   */
-  async refresh(): Promise<boolean> {
-    if (!this.refreshToken) {
-      throw new Error('No refresh token available. Please login first.');
-    }
-
-    const client = new PlaywrightHttpsClient();
-    let browserCleaned = false;
-
-    try {
-      logger.debug('Refreshing access token with Playwright...');
-      
-      const tokenPayload = {
-        grant_type: 'refresh_token',
-        client_id: '3f5d915d-a06f-42b9-89cc-2e5d63aa96f1',
-        refresh_token: this.refreshToken
-      };
-
-      logger.debug('Token refresh payload:', { 
-        grant_type: tokenPayload.grant_type, 
-        client_id: tokenPayload.client_id,
-        refresh_token: this.refreshToken.substring(0, 20) + '...'
-      });
-
-      const tokenResponse = await client.post(
-        'https://accounts.rehau.com/token-srv/token',
-        JSON.stringify(tokenPayload),
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-          }
-        }
-      );
-
-      logger.debug('Token refresh response received');
-
-      // Parse token response
-      let parsedTokenResponse: RehauTokenResponse;
-      try {
-        parsedTokenResponse = typeof tokenResponse.body === 'string' 
-          ? JSON.parse(tokenResponse.body) 
-          : tokenResponse.body;
-      } catch (parseError) {
-        logger.error('Failed to parse token refresh response:', tokenResponse.body);
-        throw new Error(`Failed to parse token refresh response: ${parseError}`);
-      }
-
-      if (!parsedTokenResponse.access_token || !parsedTokenResponse.refresh_token) {
-        logger.error('Invalid token refresh response - missing tokens:', JSON.stringify(parsedTokenResponse, null, 2));
-        throw new Error('Token refresh succeeded but response is missing access_token or refresh_token');
-      }
-
-      this.accessToken = parsedTokenResponse.access_token;
-      this.refreshToken = parsedTokenResponse.refresh_token;
-      this.tokenExpiry = Date.now() + (parsedTokenResponse.expires_in * 1000);
-      
-      // Increment token refresh counter
-      this.tokenRefreshCount++;
-
-      logger.debug('Tokens obtained via refresh');
-      logger.debug(`Token expiry: ${new Date(this.tokenExpiry).toISOString()}`);
-
-      // Cleanup browser
-      await client.cleanup();
-      browserCleaned = true;
-
-      logger.info('Token refreshed successfully');
-      return true;
-    } catch (error) {
-      logger.error('Token refresh failed:', (error as Error).message);
-      
-      // Check if it's a 401 error (invalid/expired refresh token)
-      if (error instanceof Error && error.message.includes('401')) {
-        if (!this.password) {
-          logger.error('Refresh token expired and no password is configured for fallback login');
-          throw error;
-        }
-        logger.info('Refresh token expired (401), logging in again...');
-        return await this.login();
-      }
-      
-      throw error;
-    } finally {
-      // Cleanup browser if not already done
-      if (!browserCleaned) {
-        try {
-          await client.cleanup();
-          logger.debug('Browser cleanup completed (error path)');
-        } catch (cleanupError) {
-          logger.warn('Browser cleanup failed (non-critical):', cleanupError);
-        }
-      }
-    }
-  }
-
-  /**
-   * Check if token is expired or about to expire
-   */
-  isTokenExpired(): boolean {
-    // Allow forcing token expiry for testing
-    if (process.env.FORCE_TOKEN_EXPIRED === 'true') {
-      logger.warn('⚠️ FORCE_TOKEN_EXPIRED enabled - simulating expired token');
-      return true;
-    }
-    
-    // Check simulated disconnect timer
-    const simulateDisconnectAfter = parseInt(process.env.SIMULATE_DISCONNECT_AFTER_SECONDS || '0');
-    if (simulateDisconnectAfter > 0 && this.firstLoginTimestamp) {
-      const elapsedSeconds = (Date.now() - this.firstLoginTimestamp) / 1000;
-      if (elapsedSeconds >= simulateDisconnectAfter) {
-        logger.warn(`⚠️ SIMULATE_DISCONNECT_AFTER_SECONDS triggered - ${Math.floor(elapsedSeconds)}s elapsed since first login`);
-        return true;
-      }
-    }
-    
-    if (!this.tokenExpiry) return true;
-    // Consider expired if less than 5 minutes remaining
-    return Date.now() >= (this.tokenExpiry - 300000);
-  }
-
-  /**
-   * Ensure we have a valid access token
-   * First call performs fresh login (no refresh token available)
-   * Subsequent calls try refresh first, fall back to login if needed
-   * 
-   * Set FORCE_FRESH_LOGIN=true to always perform fresh login (old behavior)
-   */
-  async ensureValidToken(): Promise<void> {
-    // Check if forced fresh login is enabled
-    const forceFreshLogin = process.env.FORCE_FRESH_LOGIN === 'true';
-    
-    if (forceFreshLogin) {
-      logger.info('🔐 FORCE_FRESH_LOGIN enabled - performing fresh login...');
-      await this.login();
-      this.startTokenRefresh();
-      return;
-    }
-    
-    if (this.refreshToken) {
-      // We have a refresh token - try refresh first
-      logger.info('🔄 Attempting token refresh (have refresh token)...');
-      try {
-        await this.refresh();
-        logger.info('✅ Token refreshed successfully via refresh token');
-        this.startTokenRefresh();
-        return;
-      } catch (error) {
-        if (!this.password) {
-          logger.error('⚠️ Token refresh failed and no password is configured for fallback login');
-          throw error;
-        }
-        logger.warn('⚠️ Token refresh failed, falling back to fresh login:', (error as Error).message);
-      }
-    } else if (this.accessToken && !this.isTokenExpired()) {
-      logger.info('✅ Using configured access token until expiry');
-      return;
-    } else {
-      logger.info('🔐 No refresh token available, performing fresh login...');
-    }
-
-    // Fresh login (first time or refresh failed)
-    await this.login();
-    
-    // Start automatic token refresh
-    this.startTokenRefresh();
   }
 
   getAccessToken(): string | null {
@@ -1118,7 +214,7 @@ class RehauAuthPersistent {
   }
 
   isAuthenticated(): boolean {
-    return this.accessToken !== null;
+    return this.validated && !this.isTokenExpired() && !this.status.error;
   }
 
   /**
@@ -1130,7 +226,7 @@ class RehauAuthPersistent {
       uptime: uptime,
       uptimeFormatted: this.formatUptime(uptime),
       tokenRefreshCount: this.tokenRefreshCount,
-      fullAuthCount: this.fullAuthCount,
+      fullAuthCount: 0,
       startTime: this.startTime
     };
   }
@@ -1160,6 +256,7 @@ class RehauAuthPersistent {
    */
   async getInstallationData(install: InstallInfo): Promise<IInstall> {
     try {
+      await this.ensureValidToken();
       const installIds = this.installs.map(i => i._id).join(',');
       const url = `https://api.nea2aws.aws.rehau.cloud/v2/users/${this.email}/getDataofInstall` +
                   `?demand=${install._id}` +

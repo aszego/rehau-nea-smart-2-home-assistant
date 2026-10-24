@@ -1,11 +1,13 @@
 # v5.0.0 Release Summary
 
+> Historical v5 report: password/browser and mailbox authentication have been removed. Follow the [current token-only configuration guide](../../docs/configuration.md#obtaining-the-token-pair); old authentication instructions below no longer apply.
+
 ## 🎉 Release Status
 
-**Version**: 5.0.0  
-**Branch**: `feature/v5.0.0-release`  
-**Commit**: `350c2fd`  
-**Status**: ✅ Ready for Docker Build & Testing  
+**Version**: 5.0.0
+**Branch**: `feature/v5.0.0-release`
+**Commit**: `350c2fd`
+**Status**: ✅ Ready for Docker Build & Testing
 **Date**: 2026-02-22
 
 ---
@@ -168,9 +170,6 @@ rehau-nea-smart-2-home-assistant/
     ├── config.yaml                # HA addon config (UPDATED)
     ├── Dockerfile                 # Multi-stage build (UPDATED)
     ├── docs/
-    │   ├── oauth2-setup.md        # OAuth2 guide with warnings (NEW)
-    │   ├── OAUTH2_GMAIL_SETUP.md  # Gmail setup (NEW)
-    │   └── OAUTH2_OUTLOOK_SETUP.md # Outlook setup (NEW)
     └── [86 files total changed]
 ```
 
@@ -249,6 +248,6 @@ Everything is committed and documented. You can now:
 
 ---
 
-*Generated: 2026-02-22*  
-*Version: 5.0.0*  
+*Generated: 2026-02-22*
+*Version: 5.0.0*
 *Status: Ready for Testing*

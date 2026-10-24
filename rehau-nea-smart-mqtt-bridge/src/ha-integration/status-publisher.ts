@@ -4,6 +4,7 @@
 
 import logger from '../logger';
 import type RehauMQTTBridge from '../mqtt-bridge';
+import type { TokenStatus } from '../rehau-auth';
 
 export type BridgeStatus = 'connected' | 'authenticating' | 'error' | 'degraded';
 export type AuthStatus = 'authenticated' | 'expired' | 'refreshing' | 'failed';
@@ -13,6 +14,7 @@ export class StatusPublisher {
   private mqttBridge: RehauMQTTBridge;
   private bridgeStatus: BridgeStatus = 'authenticating';
   private authStatus: AuthStatus = 'authenticated';
+  private tokenStatus: TokenStatus = { state: 'validating', error: false, error_text: '' };
   private mqttQuality: MQTTQuality = 'disconnected';
   private sessionStartTime: number = Date.now();
   private publishInterval: NodeJS.Timeout | null = null;
@@ -30,6 +32,16 @@ export class StatusPublisher {
     // Publish discovery configs
     await this.publishBridgeStatusConfig();
     await this.publishAuthStatusConfig();
+    this.mqttBridge.publishToHomeAssistant('homeassistant/sensor/rehau_token_status/config', {
+      name: 'REHAU Token Status',
+      unique_id: 'rehau_token_status',
+      state_topic: 'homeassistant/sensor/rehau_token_status/state',
+      value_template: '{{ value_json.state }}',
+      json_attributes_topic: 'homeassistant/sensor/rehau_token_status/state',
+      icon: 'mdi:key-alert',
+      entity_category: 'diagnostic',
+      device: { identifiers: ['rehau_bridge'], name: 'REHAU NEA SMART Bridge', manufacturer: 'REHAU', model: 'MQTT Bridge' }
+    }, { retain: true });
     await this.publishMQTTQualityConfig();
     await this.publishSessionAgeConfig();
 
@@ -64,6 +76,12 @@ export class StatusPublisher {
       logger.info(`🔐 Auth status: ${status}`);
       this.publishAuthStatus();
     }
+  }
+
+  setTokenStatus(status: TokenStatus): void {
+    this.tokenStatus = { ...status };
+    this.setAuthStatus(status.state === 'failed' ? 'failed' : status.state === 'authenticated' ? 'authenticated' : 'refreshing');
+    this.mqttBridge.publishToHomeAssistant('homeassistant/sensor/rehau_token_status/state', this.tokenStatus, { retain: true });
   }
 
   /**
@@ -186,6 +204,7 @@ export class StatusPublisher {
     await this.publishAuthStatus();
     await this.publishMQTTQuality();
     await this.publishSessionAge();
+    this.mqttBridge.publishToHomeAssistant('homeassistant/sensor/rehau_token_status/state', this.tokenStatus, { retain: true });
   }
 
   /**

@@ -24,6 +24,8 @@ This guide covers installation for both Home Assistant OS (Add-on) and Home Assi
 
 ### Step 3: Configure the Add-on
 
+Follow [manual token setup](./configuration.md#obtaining-the-token-pair). After saving tokens, restart to validate them immediately. Persist `/data` in Docker (for example `-v rehau-data:/data`) so rotated tokens survive container replacement.
+
 See [Configuration Guide](./configuration.md) for detailed configuration instructions.
 
 ### Step 4: Start the Add-on
@@ -118,29 +120,30 @@ services:
     environment:
       # REHAU Credentials (Required)
       - REHAU_EMAIL=${REHAU_EMAIL}
-      - REHAU_PASSWORD=${REHAU_PASSWORD}
-      
+      - REHAU_ACCESS_TOKEN=${REHAU_ACCESS_TOKEN}
+      - REHAU_REFRESH_TOKEN=${REHAU_REFRESH_TOKEN}
+
       # MQTT Configuration (Required)
       - MQTT_HOST=mqtt-broker  # Service name in Docker network
       - MQTT_PORT=${MQTT_PORT:-1883}
       - MQTT_USER=${MQTT_USER:-}
       - MQTT_PASSWORD=${MQTT_PASSWORD:-}
-      
+
       # API Configuration (Optional)
       - API_PORT=${API_PORT:-3000}
-      
+
       # Logging (Optional)
       - LOG_LEVEL=${LOG_LEVEL:-info}
-      
+
       # Interval Configuration (Optional)
       - ZONE_RELOAD_INTERVAL=${ZONE_RELOAD_INTERVAL:-300}
       - TOKEN_REFRESH_INTERVAL=${TOKEN_REFRESH_INTERVAL:-21600}
       - REFERENTIALS_RELOAD_INTERVAL=${REFERENTIALS_RELOAD_INTERVAL:-86400}
       - LIVE_DATA_INTERVAL=${LIVE_DATA_INTERVAL:-300}
-      
+
       # Display Configuration (Optional)
       - USE_GROUP_IN_NAMES=${USE_GROUP_IN_NAMES:-false}
-      
+
       # Command Retry Configuration (Optional)
       - COMMAND_RETRY_TIMEOUT=${COMMAND_RETRY_TIMEOUT:-30}
       - COMMAND_MAX_RETRIES=${COMMAND_MAX_RETRIES:-3}
@@ -212,12 +215,13 @@ log_type notice
 log_type information
 ```
 
-3. **Create a `.env` file** with your REHAU credentials:
+3. **Create a `.env` file** with your REHAU account email and both tokens:
 
 ```bash
 # REHAU NEA SMART Credentials (Required)
 REHAU_EMAIL=your.email@example.com
-REHAU_PASSWORD=your_password
+REHAU_ACCESS_TOKEN=your_access_token
+REHAU_REFRESH_TOKEN=your_refresh_token
 
 # MQTT Configuration (Optional - leave empty if no authentication)
 MQTT_USER=
@@ -343,10 +347,11 @@ If you already have an MQTT broker and Home Assistant Core running separately, y
    ```bash
    # Required
    REHAU_EMAIL=your.email@example.com
-   REHAU_PASSWORD=your_password
+   REHAU_ACCESS_TOKEN=your_access_token
+   REHAU_REFRESH_TOKEN=your_refresh_token
    MQTT_HOST=your-mqtt-broker-host  # Use service name if same Docker network, or IP/hostname
    MQTT_PORT=1883
-   
+
    # Optional - add MQTT credentials if needed
    MQTT_USER=your_mqtt_user
    MQTT_PASSWORD=your_mqtt_password
@@ -375,7 +380,9 @@ If you already have an MQTT broker and Home Assistant Core running separately, y
      --name rehau-bridge \
      --restart unless-stopped \
      -e REHAU_EMAIL=your.email@example.com \
-     -e REHAU_PASSWORD=your_password \
+     -e REHAU_ACCESS_TOKEN=your_access_token \
+     -e REHAU_REFRESH_TOKEN=your_refresh_token \
+     -v rehau-data:/data \
      -e MQTT_HOST=your-mqtt-broker-host \
      -e MQTT_PORT=1883 \
      -e MQTT_USER=your_mqtt_user \
@@ -399,7 +406,9 @@ If you already have an MQTT broker and Home Assistant Core running separately, y
 3. Set environment variables:
    ```bash
    export REHAU_EMAIL=your.email@example.com
-   export REHAU_PASSWORD=your_password
+   export REHAU_ACCESS_TOKEN=your_access_token
+   export REHAU_REFRESH_TOKEN=your_refresh_token
+   export REHAU_TOKEN_STORE_PATH=./rehau-tokens.json
    export MQTT_HOST=localhost
    export MQTT_PORT=1883
    ```
@@ -431,14 +440,14 @@ services:
     image: eclipse-mosquitto:latest
     networks:
       - rehau-network
-  
+
   rehau-bridge:
     build: .
     environment:
       MQTT_HOST: mqtt-broker  # Service name in same network
     networks:
       - rehau-network
-  
+
   home-assistant:
     # Your HA Core container
     # Configure MQTT_HOST to point to mqtt-broker
@@ -459,9 +468,9 @@ networks:
 
 - **Entities not appearing**: Check that MQTT Discovery is enabled in Home Assistant
 - **Connection errors**: Verify MQTT broker is accessible from both bridge and HA Core
-- **Authentication errors**: Check REHAU credentials in `.env` file
+- **Authentication errors**: Check REHAU account email and both tokens in `.env` file
 - **MQTT connection failed**: Verify `MQTT_HOST` and `MQTT_PORT` are correct
 - **Mosquitto container unhealthy**: If using the complete Docker Compose setup, ensure the healthcheck uses `pgrep mosquitto` (as shown in Option A). The healthcheck is already configured correctly in the provided example.
-- **Bridge won't start**: Check that the `.env` file exists and contains valid REHAU credentials. Verify the build context path in `docker-compose.yaml` points to the correct location of the bridge source code.
+- **Bridge won't start**: Check that the `.env` file exists and contains valid REHAU account email and both tokens. Verify the build context path in `docker-compose.yaml` points to the correct location of the bridge source code.
 
 For more detailed troubleshooting, see the [Troubleshooting Guide](./troubleshooting.md).

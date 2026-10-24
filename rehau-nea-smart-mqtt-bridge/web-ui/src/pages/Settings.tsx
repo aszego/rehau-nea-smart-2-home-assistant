@@ -21,7 +21,8 @@ interface Config {
   };
   rehau: {
     email: string;
-    hasPassword: boolean;
+    hasAccessToken: boolean;
+    hasRefreshToken: boolean;
   };
   intervals: {
     zoneReload: number;
@@ -40,30 +41,10 @@ interface Config {
   display: {
     useGroupInNames: boolean;
   };
-  pop3: {
-    enabled: boolean;
-    email: string;
-    host: string;
-    port: number;
-    secure: boolean;
-    ignoreTLSErrors: boolean;
-    debug: boolean;
-    timeout: number;
-    fromAddress: string;
-  };
-  playwright: {
-    headless: boolean;
-    idleTimeout: number;
-  };
   monitoring: {
     memoryWarningMB: number;
     stalenessWarningMs: number;
     stalenessStaleMs: number;
-  };
-  testing: {
-    forceTokenExpired: boolean;
-    simulateDisconnectAfter: number;
-    forceFreshLogin: boolean;
   };
 }
 
@@ -169,9 +150,9 @@ export function Settings() {
               <div className="setting-item">
                 <div className="setting-info">
                   <span className="setting-label">Swagger Documentation</span>
-                  <a 
-                    href={config.api.swaggerUrl} 
-                    target="_blank" 
+                  <a
+                    href={config.api.swaggerUrl}
+                    target="_blank"
                     rel="noopener noreferrer"
                     className="setting-link"
                   >
@@ -204,9 +185,14 @@ export function Settings() {
                 <span className="setting-value">{config.rehau.email}</span>
               </div>
               <div className="setting-item">
-                <span className="setting-label">Password</span>
-                <span className="setting-value">{config.rehau.hasPassword ? '✅ Set' : '❌ Not set'}</span>
+                <span className="setting-label">Access Token</span>
+                <span className="setting-value">{config.rehau.hasAccessToken ? '✅ Set' : '❌ Not set'}</span>
               </div>
+              <div className="setting-item">
+                <span className="setting-label">Refresh Token</span>
+                <span className="setting-value">{config.rehau.hasRefreshToken ? '✅ Set' : '❌ Not set'}</span>
+              </div>
+              <p>Configure tokens in Home Assistant’s add-on Configuration tab, then save and restart to validate them. Check REHAU Token Status for validation and renewal errors.</p>
             </div>
 
             <div className="settings-section">
@@ -250,58 +236,6 @@ export function Settings() {
               <div className="setting-item">
                 <span className="setting-label">Log Level</span>
                 <span className="setting-value">{config.logging.level.toUpperCase()}</span>
-              </div>
-            </div>
-
-            <div className="settings-section">
-              <h2>POP3 (OAuth2)</h2>
-              <div className="setting-item">
-                <span className="setting-label">Status</span>
-                <span className="setting-value">{config.pop3.enabled ? '✅ Enabled' : '❌ Disabled'}</span>
-              </div>
-              {config.pop3.enabled && (
-                <>
-                  <div className="setting-item">
-                    <span className="setting-label">Email</span>
-                    <span className="setting-value">{config.pop3.email}</span>
-                  </div>
-                  <div className="setting-item">
-                    <span className="setting-label">Host</span>
-                    <span className="setting-value">{config.pop3.host}:{config.pop3.port}</span>
-                  </div>
-                  <div className="setting-item">
-                    <span className="setting-label">Secure</span>
-                    <span className="setting-value">{config.pop3.secure ? '✅ Yes' : '❌ No'}</span>
-                  </div>
-                  <div className="setting-item">
-                    <span className="setting-label">Ignore TLS Errors</span>
-                    <span className="setting-value">{config.pop3.ignoreTLSErrors ? '✅ Yes' : '❌ No'}</span>
-                  </div>
-                  <div className="setting-item">
-                    <span className="setting-label">Debug Mode</span>
-                    <span className="setting-value">{config.pop3.debug ? '✅ Enabled' : '❌ Disabled'}</span>
-                  </div>
-                  <div className="setting-item">
-                    <span className="setting-label">Timeout</span>
-                    <span className="setting-value">{formatMs(config.pop3.timeout)}</span>
-                  </div>
-                  <div className="setting-item">
-                    <span className="setting-label">From Address</span>
-                    <span className="setting-value">{config.pop3.fromAddress}</span>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="settings-section">
-              <h2>Playwright Browser</h2>
-              <div className="setting-item">
-                <span className="setting-label">Headless Mode</span>
-                <span className="setting-value">{config.playwright.headless ? '✅ Yes' : '❌ No'}</span>
-              </div>
-              <div className="setting-item">
-                <span className="setting-label">Idle Timeout</span>
-                <span className="setting-value">{formatSeconds(config.playwright.idleTimeout)}</span>
               </div>
             </div>
 
@@ -362,9 +296,9 @@ export function Settings() {
           <div className="setting-item">
             <div className="setting-info">
               <span className="setting-label">Project Home</span>
-              <a 
-                href="https://github.com/manuxio/rehau-nea-smart-2-home-assistant" 
-                target="_blank" 
+              <a
+                href="https://github.com/manuxio/rehau-nea-smart-2-home-assistant"
+                target="_blank"
                 rel="noopener noreferrer"
                 className="setting-link"
               >
@@ -375,9 +309,9 @@ export function Settings() {
           <div className="setting-item">
             <div className="setting-info">
               <span className="setting-label">REHAU</span>
-              <a 
-                href="https://www.rehau.com/" 
-                target="_blank" 
+              <a
+                href="https://www.rehau.com/"
+                target="_blank"
                 rel="noopener noreferrer"
                 className="setting-link"
               >

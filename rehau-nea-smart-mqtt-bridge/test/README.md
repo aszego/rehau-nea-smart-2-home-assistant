@@ -4,30 +4,21 @@ This folder contains tests for the REHAU NEA SMART 2.0 MQTT Bridge project.
 
 ## Available Tests
 
-### Configuration Validation Tests
+### Token Authentication and Configuration Tests
 
-**File**: `test-config-validation.ts`
+**File**: `../tests/token-auth.test.ts`
 
-Runs a comprehensive test suite for runtime configuration validation.
-
-**Run**:
+**Run** from the add-on directory:
 ```bash
-npm run test:config-validation
+npm test -- --runInBand token-auth
 ```
 
-**What it tests**:
-- ✅ Valid configuration
-- ❌ Missing email or invalid format
-- ⚠️ Password too short (warning)
-- ❌ MQTT/API ports out of range
-- ❌ MQTT username without password
-- ❌ Invalid hostname
-- ✅ Valid IPv4 address
-- ❌ Intervals out of range
-- ⚠️ Invalid LOG_LEVEL (warning)
-- ⚠️ Invalid USE_GROUP_IN_NAMES (warning)
+Covers required email/access/refresh tokens, immediate server validation, installation loading, renewal before expiry, concurrent renewal, rotated-token persistence, failure reporting and recovery, and timer cleanup. HTTP requests are mocked; no credentials are required.
 
-**Output**: Shows a summary with all passed/failed tests and details of errors and warnings generated.
+The separate Web UI admin login regression tests can be included with:
+```bash
+npm test -- --runInBand token-auth auth.test
+```
 
 ### Memory Leaks and Cleanup Tests
 
@@ -39,7 +30,7 @@ npm run test:config-validation
    ```bash
    # Start the application
    npm start
-   
+
    # In another terminal, monitor memory usage every 10 seconds
    watch -n 10 'ps aux | grep node | grep -v grep | awk "{print \$6/1024 \" MB\"}"'
    ```
@@ -48,7 +39,7 @@ npm run test:config-validation
    ```bash
    # Start the application
    npm start
-   
+
    # Wait for complete initialization
    # Send SIGTERM or SIGINT (Ctrl+C)
    # Verify in logs that all cleanup operations were executed
@@ -58,7 +49,7 @@ npm run test:config-validation
    ```bash
    # Start the application
    npm start
-   
+
    # Simulate critical error (e.g. kill -9)
    # Verify that cleanup is called even for unhandled errors
    ```
@@ -92,6 +83,4 @@ app.on('exit', () => {
 
 ## Notes
 
-Tests use `ts-node` to execute TypeScript files directly without compilation.
-
-For more details on manual tests, see `../docs/TEST_CONFIG_VALIDATION.md`.
+Automated tests use Jest with `ts-jest`. Token tests use fake timers and temporary files that are removed after each test.

@@ -69,7 +69,7 @@ Examples:
 git commit -m "feat(logging): add emoji support and directional indicators"
 git commit -m "feat(api): implement JWT authentication"
 git commit -m "feat(web-ui): create zone control page"
-git commit -m "fix(playwright): close browser after idle timeout"
+git commit -m "fix(auth): renew token before expiry"
 git commit -m "docs: update roadmap after logging phase"
 ```
 
@@ -98,10 +98,9 @@ web-ui/src/pages/*.tsx
 web-ui/src/components/*.tsx
 ```
 
-### Round 7: Playwright (Week 7)
+### Token Authentication
 ```bash
 # Focus files:
-src/playwright-https-client.ts
 src/rehau-auth.ts
 ```
 

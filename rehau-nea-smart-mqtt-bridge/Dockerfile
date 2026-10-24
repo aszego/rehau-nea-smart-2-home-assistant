@@ -41,22 +41,14 @@ RUN npm run build:docker
 # Use node:20-alpine as base (can be overridden for HA addon)
 FROM node:20-alpine
 
-# Install runtime dependencies
-RUN apk add --no-cache \
-    wget \
-    jq \
-    chromium \
-    nss \
-    freetype \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont \
-    font-noto-emoji
+# HTTPS trust, add-on options parsing, and health checks only; no browser runtime.
+RUN apk add --no-cache wget jq ca-certificates
 
-# Set Playwright to use system Chromium
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
-    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium \
-    NODE_ENV=production
+ENV NODE_ENV=production \
+    REHAU_TOKEN_STORE_PATH=/data/rehau-tokens.json
+
+RUN mkdir -p /data
+VOLUME ["/data"]
 
 WORKDIR /app
 
@@ -64,7 +56,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install production dependencies only
-RUN npm ci --production
+RUN npm ci --omit=dev
 
 # Copy built backend from builder
 COPY --from=backend-builder /app/dist ./dist

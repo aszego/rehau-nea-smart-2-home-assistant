@@ -2,8 +2,8 @@
 
 ## ✅ Commit Status
 
-**Branch**: `feature/v5.0.0-release`  
-**Commit**: `350c2fd`  
+**Branch**: `feature/v5.0.0-release`
+**Commit**: `350c2fd`
 **Status**: Ready for Docker build and testing
 
 ## 🐳 Docker Build Instructions
@@ -16,7 +16,9 @@ cd rehau-nea-smart-2-home-assistant/rehau-nea-smart-mqtt-bridge
 
 ### 2. Verify .env Configuration
 
-Ensure your `.env` file has all required settings:
+Ensure your `.env` file has REHAU email and both tokens ([manual browser instructions](../../docs/configuration.md#obtaining-the-token-pair)), MQTT settings, and a separate API/Web UI administrator password. Startup validates tokens immediately; inspect `sensor.rehau_token_status` `error` and `error_text`.
+
+Check the environment template:
 
 ```bash
 # Check if .env exists
@@ -37,7 +39,7 @@ docker build -t rehau-bridge:v5.0.0 .
 # - Install Node.js 20
 # - Build web UI (React + Vite)
 # - Compile TypeScript
-# - Install Chromium for Playwright
+# - Install only production runtime packages (no browser)
 # - Create optimized production image
 ```
 
@@ -51,6 +53,7 @@ docker run -d \
   --name rehau-test \
   -p 3000:3000 \
   --env-file .env \
+  -v rehau-data:/data \
   --restart unless-stopped \
   rehau-bridge:v5.0.0
 ```
@@ -92,7 +95,8 @@ curl http://localhost:3000/health
 - [ ] Web UI loads successfully
 - [ ] API documentation accessible
 - [ ] MQTT connection established
-- [ ] Authentication completes
+- [ ] Token validation completes; token status sensor has no error
+- [ ] Renewed tokens persist in the mounted `/data` volume
 - [ ] Zones discovered and published
 
 ### Web UI Testing
@@ -135,7 +139,6 @@ curl http://localhost:3000/health
 # Docker Desktop → Settings → Resources → Memory: 4GB+
 ```
 
-**Issue**: Chromium installation fails
 ```bash
 # Solution: Use --no-cache flag
 docker build --no-cache -t rehau-bridge:v5.0.0 .
@@ -161,25 +164,9 @@ cat .env
 docker exec rehau-test env | grep REHAU
 ```
 
-### Authentication Issues
+### Token Authentication Issues
 
-**Issue**: 2FA codes not received
-```bash
-# Check POP3 settings
-docker logs rehau-test | grep POP3
-
-# Verify email credentials
-# Test POP3 connection manually
-```
-
-**Issue**: Browser launch fails
-```bash
-# Check Chromium installation
-docker exec rehau-test which chromium
-
-# Check memory usage
-docker stats rehau-test
-```
+Check `sensor.rehau_token_status` `error` and `error_text`. For rejected refresh tokens, obtain a new pair, replace both token fields, and restart. Never print container environment variables or `.env` contents when collecting logs.
 
 ## 📊 Performance Monitoring
 
@@ -251,6 +238,6 @@ Before pushing to main, verify:
 
 ---
 
-**Current Status**: Ready for Docker build and testing  
-**Branch**: feature/v5.0.0-release  
+**Current Status**: Ready for Docker build and testing
+**Branch**: feature/v5.0.0-release
 **Commit**: 350c2fd

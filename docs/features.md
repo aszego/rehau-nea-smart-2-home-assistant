@@ -23,7 +23,7 @@ This document provides an overview of all features available in the REHAU NEA SM
 
 - **Real-time MQTT updates** from REHAU system
 - **Configurable update intervals** for zones, tokens, and referentials
-- **Automatic token refresh** with fallback to fresh login
+- **Automatic token renewal** before expiry, with durable `/data` storage and no password-login fallback
 - **Enhanced debug logging** with sensitive data redaction
 - **TypeScript implementation** with strict type safety
 - **Comprehensive obfuscation** of sensitive data in info-level logs
@@ -39,6 +39,7 @@ The bridge creates the following entity types in Home Assistant:
 - Preset control (comfort/away)
 
 ### Sensor Entities
+- Token status diagnostic sensor (`sensor.rehau_token_status`, `error` and `error_text` attributes)
 - Temperature sensors per zone
 - Humidity sensors per zone
 - Outside temperature sensor

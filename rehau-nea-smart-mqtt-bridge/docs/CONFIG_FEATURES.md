@@ -40,8 +40,7 @@ API_PORT=3000
 - All polling intervals
 - Command configuration
 - Logging level
-- POP3 configuration (credentials masked)
-- Playwright settings
+- REHAU access/refresh tokens (masked)
 - Monitoring thresholds
 - Testing/debug flags
 
@@ -58,8 +57,7 @@ API_PORT=3000
 5. Polling Intervals
 6. Commands
 7. Logging
-8. POP3 (OAuth2)
-9. Playwright Browser
+8. Token status and renewal
 10. Monitoring
 11. Account (Logout)
 12. About

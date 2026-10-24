@@ -18,7 +18,8 @@ import { ResourceMonitor } from './monitoring/resource-monitor';
 interface Config {
   rehau: {
     email: string;
-    password: string;
+    accessToken: string;
+    refreshToken: string;
   };
   mqtt: {
     host: string;
@@ -32,7 +33,8 @@ interface Config {
 const config: Config = {
   rehau: {
     email: process.env.REHAU_EMAIL || '',
-    password: process.env.REHAU_PASSWORD || ''
+    accessToken: process.env.REHAU_ACCESS_TOKEN || '',
+    refreshToken: process.env.REHAU_REFRESH_TOKEN || ''
   },
   mqtt: {
     host: process.env.MQTT_HOST || 'localhost',
@@ -100,9 +102,8 @@ if (validationResult.warnings.length > 0) {
 // Initialize components
 const auth = new RehauAuthPersistent(
   config.rehau.email,
-  config.rehau.password,
-  process.env.REHAU_ACCESS_TOKEN,
-  process.env.REHAU_REFRESH_TOKEN
+  config.rehau.accessToken,
+  config.rehau.refreshToken
 );
 const mqttBridge = new RehauMQTTBridge(auth, config.mqtt);
 const rehauApi = auth; // RehauAuth has the API methods
@@ -159,10 +160,23 @@ async function start() {
       logger.warn('');
     }
     
-    // Authenticate with REHAU
-    logger.info('🔐 Authenticating with REHAU...');
-    await auth.ensureValidToken();
-    logger.info('✅ Authentication successful');
+    // Connect HA first so token validation failures can be reported independently of REHAU.
+    await mqttBridge.connectToHomeAssistant();
+    await statusPublisher.initialize();
+    auth.onTokenStatus(status => statusPublisher.setTokenStatus(status));
+
+    logger.info('🔐 Validating REHAU tokens...');
+    while (true) {
+      try {
+        await auth.ensureValidToken();
+        break;
+      } catch (error) {
+        logger.error('REHAU token validation failed; retrying in 60 seconds:', (error as Error).message);
+        statusPublisher.setBridgeStatus('error');
+        await new Promise(resolve => setTimeout(resolve, 60000));
+      }
+    }
+    logger.info('✅ Token validation successful');
     
     // Get installations and register for obfuscation
     const installs = auth.getInstalls();
@@ -234,8 +248,7 @@ async function start() {
       }
     });
     
-    // Initialize HA status publisher
-    await statusPublisher.initialize();
+    // Mark the fully initialized bridge connected.
     statusPublisher.setBridgeStatus('connected');
     statusPublisher.setAuthStatus('authenticated');
     statusPublisher.setMQTTQuality('excellent');

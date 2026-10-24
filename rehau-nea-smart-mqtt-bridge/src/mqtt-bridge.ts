@@ -169,7 +169,8 @@ class RehauMQTTBridge {
     });
   }
 
-  private async connectToHomeAssistant(): Promise<void> {
+  async connectToHomeAssistant(): Promise<void> {
+    if (this.haClient?.connected) return;
     return new Promise((resolve, reject) => {
       logger.info('🔌 Connecting to Home Assistant MQTT broker...');
       

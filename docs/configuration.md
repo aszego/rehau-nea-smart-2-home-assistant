@@ -9,14 +9,13 @@ Configure via the add-on's **Configuration** tab in Home Assistant:
 ### Required Settings
 
 ```yaml
-rehau:
-  email: your.email@example.com
-  password: your_password
-mqtt:
-  host: core-mosquitto  # Use service name if Mosquitto add-on, or broker hostname/IP
-  port: 1883
-  username: mqtt_user
-  password: mqtt_password
+rehau_email: your.email@example.com
+rehau_access_token: your_access_token
+rehau_refresh_token: your_refresh_token
+mqtt_host: core-mosquitto
+mqtt_port: 1883
+mqtt_user: mqtt_user
+mqtt_password: mqtt_password
 ```
 
 ### Optional Settings
@@ -25,7 +24,7 @@ mqtt:
 api_port: 3000                          # REST API port (default: 3000)
 log_level: info                         # debug|info|warn|error (default: info)
 zone_reload_interval: 300               # Seconds between HTTPS polls (default: 300, max: 86400)
-token_refresh_interval: 21600           # Seconds between token refresh (default: 21600)
+token_refresh_interval: 21600           # Maximum renewal interval; expiry-aware scheduling may renew earlier
 referentials_reload_interval: 86400     # Seconds between referentials reload (default: 86400)
 use_group_in_names: false               # Include group in display names (default: false)
 ```
@@ -40,7 +39,9 @@ Configure via environment variables (see `.env.example` for template):
 
 ```bash
 REHAU_EMAIL=your.email@example.com
-REHAU_PASSWORD=your_password
+REHAU_ACCESS_TOKEN=your_access_token
+REHAU_REFRESH_TOKEN=your_refresh_token
+REHAU_TOKEN_STORE_PATH=/data/rehau-tokens.json
 MQTT_HOST=localhost  # or your MQTT broker hostname/IP
 MQTT_PORT=1883
 ```
@@ -60,14 +61,35 @@ USE_GROUP_IN_NAMES=false
 
 ## Configuration Parameters Explained
 
-### REHAU Credentials
+### REHAU Tokens
 
 - **REHAU_EMAIL / rehau_email**: Your REHAU NEA SMART account email address
-- **REHAU_PASSWORD / rehau_password**: Your REHAU NEA SMART account password
+- **REHAU_ACCESS_TOKEN / rehau_access_token**: Required access token (masked in Home Assistant)
+- **REHAU_REFRESH_TOKEN / rehau_refresh_token**: Required refresh token from the same login response (masked)
+- **REHAU_TOKEN_STORE_PATH**: Durable token file; Docker/add-on default `/data/rehau-tokens.json`
+
+### Obtaining the Token Pair
+
+The bridge requires your REHAU account email and **both** an access token and a refresh token. It never logs into REHAU with a password or reads your mailbox. The separate local API/Web UI administrator login is unchanged.
+
+Use the PC-side **.NET 10 token helper** described in the [configuration manual](../manual.md#3-obtain-tokens-with-the-pc-side-net-helper). From the repository root, run:
+
+```powershell
+dotnet run --project .\tools\Rehau.TokenHelper
+```
+
+The helper opens a generated REHAU OAuth login URL. Sign in and complete email verification in your own browser, then paste the full final image redirect URL into the same running helper. It exchanges the code using PKCE and displays both tokens. Copy the token values into Home Assistant, set the matching account email, Save, and start/restart to validate them. It does not require Playwright or mailbox credentials and writes no token file.
+
+Do not use http://android.neasmart.de/ as a login page: it was only an Origin/Referer header in the original client. No Network export is needed. The helper's live exchange may be rejected if REHAU requires browser-session protection; see the manual for limitations and troubleshooting.
+
+Renewal is scheduled **before access-token expiry**, bounded by `token_refresh_interval`. Rotated tokens are saved durably in **`/data/rehau-tokens.json`**, so unchanged configured tokens do not overwrite the latest renewed pair on restart. Mount a persistent `/data` volume in Docker; standalone deployments can set `REHAU_TOKEN_STORE_PATH` to a persistent writable path. Protect this file like a password and keep it with backups of your add-on data.
+
+The diagnostic sensor exposes `error` (boolean) and `error_text` (sanitized explanation). If validation or renewal fails, check these attributes and your network connection. If REHAU rejects the refresh token, obtain a **new pair**, replace both fields, Save, and restart. The bridge does not fall back to password/browser login. Never share tokens, the token store, or Network/HAR exports.
+
 
 ### MQTT Configuration
 
-- **MQTT_HOST / mqtt_host**: 
+- **MQTT_HOST / mqtt_host**:
   - HA OS: Usually `core-mosquitto` if using the Mosquitto add-on
   - HA Core: Use broker hostname/IP (e.g., `localhost`, `192.168.1.100`, or Docker service name)
 - **MQTT_PORT / mqtt_port**: Usually `1883` for non-TLS connections
@@ -92,13 +114,13 @@ USE_GROUP_IN_NAMES=false
   - Lower values = more frequent updates but more API calls
   - Default: `300` (5 minutes)
   - Maximum: `86400` (24 hours)
-  
-- **TOKEN_REFRESH_INTERVAL / token_refresh_interval**: How often to refresh the authentication token (in seconds)
+
+- **TOKEN_REFRESH_INTERVAL / token_refresh_interval**: Maximum interval between token renewals (in seconds); expiry-aware scheduling renews earlier when needed
   - Default: `21600` (6 hours)
-  
+
 - **REFERENTIALS_RELOAD_INTERVAL / referentials_reload_interval**: How often to reload referential data (in seconds)
   - Default: `86400` (24 hours)
-  
+
 - **LIVE_DATA_INTERVAL / live_data_interval**: How often to poll for live sensor data (in seconds)
   - Default: `300` (5 minutes)
 
@@ -113,7 +135,7 @@ USE_GROUP_IN_NAMES=false
 
 - **COMMAND_RETRY_TIMEOUT / command_retry_timeout**: Timeout for command retries (in seconds)
   - Default: `30`
-  
+
 - **COMMAND_MAX_RETRIES / command_max_retries**: Maximum number of retry attempts for failed commands
   - Default: `3`
 

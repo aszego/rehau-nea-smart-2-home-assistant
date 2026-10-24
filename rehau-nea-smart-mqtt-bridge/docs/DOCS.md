@@ -4,7 +4,10 @@
 
 ### REHAU Account
 - **rehau_email**: Your REHAU NEA SMART account email address
-- **rehau_password**: Your REHAU NEA SMART account password
+- **rehau_access_token**: Required masked access token
+- **rehau_refresh_token**: Required masked refresh token from the same login response
+
+[Obtain both tokens manually](../../docs/configuration.md#obtaining-the-token-pair), Save, and restart for immediate validation. Renewal runs before expiry and persists in `/data/rehau-tokens.json`. Check `sensor.rehau_token_status` `error` and `error_text` on failure. API/Web UI administrator credentials are separate.
 
 ### MQTT Broker
 - **mqtt_host**: MQTT broker hostname (default: `core-mosquitto`)
@@ -33,7 +36,7 @@
   - Lower values = more frequent updates but more API calls
   - Higher values = less frequent updates but fewer API calls
 
-- **token_refresh_interval**: How often to refresh authentication token (default: `21600` = 6 hours)
+- **token_refresh_interval**: Maximum interval between renewals (expiry-aware scheduling can renew earlier) (default: `21600` = 6 hours)
   - Range: 1800-86400 seconds
   - Recommended: Keep default unless experiencing authentication issues
 
@@ -52,7 +55,8 @@
 ### Basic Configuration (Mosquitto without authentication)
 ```yaml
 rehau_email: "your@email.com"
-rehau_password: "yourpassword"
+rehau_access_token: "your_access_token"
+rehau_refresh_token: "your_refresh_token"
 mqtt_host: "core-mosquitto"
 mqtt_port: 1883
 log_level: "info"
@@ -61,7 +65,8 @@ log_level: "info"
 ### With MQTT Authentication
 ```yaml
 rehau_email: "your@email.com"
-rehau_password: "yourpassword"
+rehau_access_token: "your_access_token"
+rehau_refresh_token: "your_refresh_token"
 mqtt_host: "core-mosquitto"
 mqtt_port: 1883
 mqtt_user: "homeassistant"
@@ -72,7 +77,8 @@ log_level: "info"
 ### Custom Intervals
 ```yaml
 rehau_email: "your@email.com"
-rehau_password: "yourpassword"
+rehau_access_token: "your_access_token"
+rehau_refresh_token: "your_refresh_token"
 mqtt_host: "core-mosquitto"
 mqtt_port: 1883
 log_level: "info"

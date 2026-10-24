@@ -14,8 +14,6 @@
   - Mobile-first React web interface with PWA support
   - Enhanced logging with colors and emojis
   - Home Assistant status sensors and monitoring
-  - Optimized Playwright with lazy loading
-  - OAuth2 support (partial - with clear warnings)
   - Comprehensive documentation (README, CHANGELOG, guides)
   - Docker multi-stage build configuration
 
@@ -29,14 +27,14 @@
 2. VERIFY CONFIGURATION
    # Check if .env exists
    Test-Path .env
-   
+
    # If not, copy and edit
    cp .env.example .env
    notepad .env  # Edit with your credentials
 
 3. BUILD DOCKER IMAGE
    docker build -t rehau-bridge:v5.0.0 .
-   
+
    Expected time: 5-10 minutes
    Expected size: ~1.5GB (includes Chromium)
 
@@ -50,7 +48,7 @@
 
 5. MONITOR LOGS
    docker logs rehau-test -f
-   
+
    Look for:
    ✅ "🚀 API Server started on port 3000"
    ✅ "📡 MQTT Connected"
@@ -60,10 +58,10 @@
 6. TEST ENDPOINTS
    # Health check
    curl http://localhost:3000/health
-   
+
    # Web UI
    Start-Process "http://localhost:3000"
-   
+
    # API Docs
    Start-Process "http://localhost:3000/api-docs"
 
@@ -127,8 +125,7 @@ Port 3000 In Use:
   - Use different port: docker run -p 3001:3000 ...
 
 Auth Fails:
-  - Check REHAU_EMAIL and REHAU_PASSWORD in .env
-  - Verify POP3 settings if 2FA enabled
+  - Check REHAU_EMAIL, REHAU_ACCESS_TOKEN, and REHAU_REFRESH_TOKEN in .env
   - Check logs: docker logs rehau-test | grep "🔐\|❌"
 
 MQTT Not Connecting:
@@ -137,7 +134,6 @@ MQTT Not Connecting:
   - Test: mosquitto_pub -h localhost -t test -m "hello"
 
 High Memory:
-  - Normal with Playwright (300-500 MB)
   - Browser closes after 5 min idle
   - Check: docker stats rehau-test
 
@@ -190,7 +186,6 @@ Complete Documentation:
   - README.md               - Full project documentation
   - CHANGELOG.md            - Version history and changes
   - DOCKER_GUIDE.md         - Docker deployment details
-  - docs/oauth2-setup.md    - OAuth2 setup (with warnings)
 
 Access Points (after starting):
   - Web UI:     http://localhost:3000

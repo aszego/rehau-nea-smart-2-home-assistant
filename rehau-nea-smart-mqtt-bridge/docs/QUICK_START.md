@@ -14,7 +14,7 @@ cp .env.example .env
 
 # 3. Build and run
 docker build -t rehau-bridge:v5.0.0 .
-docker run -d --name rehau-bridge -p 3000:3000 --env-file .env rehau-bridge:v5.0.0
+docker run -d --name rehau-bridge -p 3000:3000 -v rehau-data:/data --env-file .env rehau-bridge:v5.0.0
 
 # 4. Check logs
 docker logs rehau-bridge -f
@@ -25,21 +25,20 @@ docker logs rehau-bridge -f
 
 ## 📋 Minimum Required Configuration
 
+[Obtain both tokens by manual browser login](../../docs/configuration.md#obtaining-the-token-pair). Save and restart validates them immediately; renewal runs before expiry and persists rotated tokens in `/data`. API/Web UI admin credentials remain separate.
+
 Edit `.env` with these essential settings:
 
 ```env
 # REHAU Account
 REHAU_EMAIL=your.email@example.com
-REHAU_PASSWORD=your_password
+REHAU_ACCESS_TOKEN=your_access_token
+REHAU_REFRESH_TOKEN=your_refresh_token
+REHAU_TOKEN_STORE_PATH=/data/rehau-tokens.json
 
 # MQTT Broker
 MQTT_HOST=localhost
 MQTT_PORT=1883
-
-# POP3 for 2FA (if enabled)
-POP3_EMAIL=your.email@gmx.com
-POP3_PASSWORD=your_pop3_password
-POP3_HOST=pop.gmx.com
 
 # API Access
 API_PASSWORD=your_secure_password
@@ -77,10 +76,8 @@ docker logs rehau-bridge | grep "🚀\|✅\|🔐"
 | Problem | Solution |
 |---------|----------|
 | Port 3000 in use | Use `-p 3001:3000` instead |
-| Auth fails | Check REHAU credentials |
-| No 2FA codes | Verify POP3 settings |
+| Token validation/renewal fails | Check `sensor.rehau_token_status` error/error_text; replace both rejected tokens and restart |
 | MQTT not connecting | Check MQTT_HOST and port |
-| High memory | Normal with Playwright (300-500MB) |
 
 ## 📚 Full Documentation
 
@@ -97,6 +94,6 @@ docker logs rehau-bridge | grep "🚀\|✅\|🔐"
 
 ---
 
-**Version**: 5.0.0  
-**Status**: Production Ready  
+**Version**: 5.0.0
+**Status**: Production Ready
 **Support**: Node.js 20+, Docker 24+

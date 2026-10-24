@@ -13,6 +13,7 @@ logs/
 .env
 tokens.json
 .rehau-tokens.json
+rehau-response-*.html
 
 # IDE
 .vscode/

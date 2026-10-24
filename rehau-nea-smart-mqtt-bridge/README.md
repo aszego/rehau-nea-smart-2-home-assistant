@@ -9,7 +9,6 @@
 ![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg?logo=docker)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![MQTT](https://img.shields.io/badge/MQTT-5.0-brightgreen.svg)
-![Playwright](https://img.shields.io/badge/Playwright-1.40-45ba4b.svg?logo=playwright)
 
 **Enterprise-grade MQTT bridge with modern web interface for REHAU NEA SMART 2.0 heating systems**
 
@@ -43,16 +42,15 @@ The REHAU NEA SMART 2.0 MQTT Bridge is a professional-grade integration solution
 - **Real-time MQTT Bridge** - Bidirectional communication with REHAU cloud services
 - **Modern Web UI** - Progressive Web App with mobile-first responsive design
 - **REST API** - Complete programmatic access with OpenAPI/Swagger documentation
-- **Automatic 2FA** - Seamless POP3-based email verification
-- **Cloudflare Bypass** - Playwright-powered browser automation
+- **Token Authentication** - Supplied access/refresh tokens with expiry-aware renewal
 - **Enterprise Features** - Monitoring, logging, health checks, and more
 
 ### Architecture
 
 ```
 ┌─────────────────┐      HTTPS/WSS      ┌──────────────┐
-│  REHAU Cloud    │◄────────────────────┤  Playwright  │
-│  (Cloudflare)   │                     │   Browser    │
+│  REHAU Cloud    │◄────────────────────┤ Token HTTPS  │
+│   API / MQTT   │                     │    Client    │
 └─────────────────┘                     └──────┬───────┘
                                                │
                                         ┌──────▼───────┐
@@ -88,10 +86,7 @@ The REHAU NEA SMART 2.0 MQTT Bridge is a professional-grade integration solution
 - ✅ **Retained Messages** - State persistence across restarts
 
 #### Authentication & Security
-- ✅ **Automatic 2FA** - POP3-based email verification code extraction
-- ✅ **Token Management** - Automatic refresh every 6 hours
-- ✅ **Cloudflare Bypass** - Playwright browser automation
-- ✅ **OAuth2 Support** - Gmail and Outlook integration (experimental)
+- ✅ **Token Management** - Automatic renewal before expiry and durable storage
 - ✅ **JWT Authentication** - Secure API access
 - ✅ **Password Hashing** - bcrypt-based credential storage
 
@@ -174,7 +169,7 @@ The REHAU NEA SMART 2.0 MQTT Bridge is a professional-grade integration solution
 - **Node.js** 20.x or higher
 - **MQTT Broker** (Mosquitto recommended)
 - **REHAU Account** with NEA SMART 2.0 system
-- **POP3 Email** for 2FA automation (GMX.de recommended)
+- **Access and refresh tokens** obtained by manual browser login (see below)
 
 ### Option 1: Home Assistant Add-on (Recommended)
 
@@ -207,12 +202,9 @@ docker run -d \
   --restart unless-stopped \
   -p 3000:3000 \
   -e REHAU_EMAIL=your@email.com \
-  -e REHAU_PASSWORD=your_password \
-  -e POP3_EMAIL=your@gmx.de \
-  -e POP3_PASSWORD=pop3_password \
-  -e POP3_HOST=pop.gmx.net \
-  -e POP3_PORT=995 \
-  -e POP3_SECURE=true \
+  -e REHAU_ACCESS_TOKEN=your_access_token \
+  -e REHAU_REFRESH_TOKEN=your_refresh_token \
+  -v rehau-data:/data \
   -e MQTT_HOST=mqtt-broker \
   -e MQTT_PORT=1883 \
   -e MQTT_USERNAME=mqtt_user \
@@ -231,31 +223,27 @@ services:
     image: ghcr.io/manuxio/rehau-nea-smart-2-home-assistant:latest
     container_name: rehau-bridge
     restart: unless-stopped
+    volumes:
+      - rehau-data:/data
     ports:
       - "3000:3000"
     environment:
       # REHAU Credentials
       REHAU_EMAIL: your@email.com
-      REHAU_PASSWORD: your_password
-      
-      # POP3 Configuration (for 2FA)
-      POP3_EMAIL: your@gmx.de
-      POP3_PASSWORD: pop3_password
-      POP3_HOST: pop.gmx.net
-      POP3_PORT: 995
-      POP3_SECURE: true
-      
+      REHAU_ACCESS_TOKEN: your_access_token
+      REHAU_REFRESH_TOKEN: your_refresh_token
+
       # MQTT Configuration
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
-      MQTT_USERNAME: mqtt_user
+      MQTT_USER: mqtt_user
       MQTT_PASSWORD: mqtt_pass
-      
+
       # API Configuration
       API_ENABLED: true
       API_PASSWORD: secure_password
       WEB_UI_ENABLED: true
-      
+
       # Logging
       LOG_LEVEL: info
     depends_on:
@@ -271,6 +259,9 @@ services:
       - ./mosquitto/config:/mosquitto/config
       - ./mosquitto/data:/mosquitto/data
       - ./mosquitto/log:/mosquitto/log
+
+volumes:
+  rehau-data:
 ```
 
 ### Option 4: Standalone
@@ -298,95 +289,25 @@ npm start
 
 ## ⚙️ Configuration
 
-### Required Settings
+See the [Configuration Guide](../docs/configuration.md) and [.env.example](./.env.example) for all options. Set your MQTT broker and a strong **separate** API/Web UI administrator password and JWT secret.
 
-#### REHAU Credentials
-```env
-REHAU_EMAIL=your.email@example.com
-REHAU_PASSWORD=your_rehau_password
+## 🔐 Obtain REHAU Tokens
+
+The bridge requires your REHAU account email and **both** an access token and a refresh token. It never logs into REHAU with a password or reads your mailbox. The separate local API/Web UI administrator login is unchanged.
+
+Use the PC-side **.NET 10 token helper** described in the [configuration manual](../manual.md#3-obtain-tokens-with-the-pc-side-net-helper). From the repository root, run:
+
+```powershell
+dotnet run --project .\tools\Rehau.TokenHelper
 ```
 
-#### POP3 Email (for 2FA)
-```env
-POP3_EMAIL=your.email@gmx.de
-POP3_PASSWORD=your_pop3_password
-POP3_HOST=pop.gmx.net
-POP3_PORT=995
-POP3_SECURE=true
-```
+The helper opens a generated REHAU OAuth login URL. Sign in and complete email verification in your own browser, then paste the full final image redirect URL into the same running helper. It exchanges the code using PKCE and displays both tokens. Copy the token values into Home Assistant, set the matching account email, Save, and start/restart to validate them. It does not require Playwright or mailbox credentials and writes no token file.
 
-**Recommended Provider**: [GMX.de](https://www.gmx.de) (free, German, reliable POP3)
+Do not use http://android.neasmart.de/ as a login page: it was only an Origin/Referer header in the original client. No Network export is needed. The helper's live exchange may be rejected if REHAU requires browser-session protection; see the manual for limitations and troubleshooting.
 
-**Setup Steps**:
-1. Create GMX account
-2. Enable POP3 in settings
-3. Forward emails from `noreply@accounts.rehau.com` to GMX
-4. Use GMX credentials above
+Renewal is scheduled **before access-token expiry**, bounded by `token_refresh_interval`. Rotated tokens are saved durably in **`/data/rehau-tokens.json`**, so unchanged configured tokens do not overwrite the latest renewed pair on restart. Mount a persistent `/data` volume in Docker; standalone deployments can set `REHAU_TOKEN_STORE_PATH` to a persistent writable path. Protect this file like a password and keep it with backups of your add-on data.
 
-#### MQTT Broker
-```env
-MQTT_HOST=localhost
-MQTT_PORT=1883
-MQTT_USERNAME=mqtt_user        # Optional
-MQTT_PASSWORD=mqtt_password    # Optional
-```
-
-#### API Access
-```env
-API_ENABLED=true
-API_PASSWORD=your_secure_password
-WEB_UI_ENABLED=true
-```
-
-### Optional Settings
-
-#### Logging
-```env
-LOG_LEVEL=info                 # debug, info, warn, error
-LOG_SHOW_OK_REQUESTS=false     # Show successful HTTP requests
-LOG_OBFUSCATE=true             # Mask sensitive data
-```
-
-#### Playwright
-```env
-PLAYWRIGHT_HEADLESS=true       # Run browser in headless mode
-PLAYWRIGHT_IDLE_TIMEOUT=60000  # Browser idle timeout (ms)
-```
-
-#### Token Management
-```env
-TOKEN_REFRESH_INTERVAL=21600   # Refresh interval (seconds, default 6h)
-FORCE_FRESH_LOGIN=false        # Force new login instead of refresh
-```
-
-#### Monitoring
-```env
-STALENESS_WARNING_MS=600000    # Warn after 10 minutes
-STALENESS_STALE_MS=1800000     # Stale after 30 minutes
-LIVE_DATA_INTERVAL=300         # Poll installation data every 5 minutes
-```
-
-#### Advanced
-```env
-MQTT_TOPIC_PREFIX=rehau        # MQTT topic prefix
-MQTT_CLIENT_ID=rehau-bridge    # MQTT client identifier
-API_PORT=3000                  # API server port
-API_USERNAME=admin             # API username (default: admin)
-```
-
-### OAuth2 Configuration (Experimental)
-
-For Gmail or Outlook POP3 access:
-
-```env
-POP3_PROVIDER=gmail            # or 'outlook'
-POP3_OAUTH2_CLIENT_ID=your_client_id
-POP3_OAUTH2_CLIENT_SECRET=your_client_secret
-POP3_OAUTH2_REFRESH_TOKEN=your_refresh_token
-POP3_OAUTH2_TENANT_ID=your_tenant_id  # Outlook only
-```
-
-See [OAuth2 Setup Guides](./docs/oauth2-setup.md) for detailed instructions.
+The diagnostic sensor exposes `error` (boolean) and `error_text` (sanitized explanation). If validation or renewal fails, check these attributes and your network connection. If REHAU rejects the refresh token, obtain a **new pair**, replace both fields, Save, and restart. The bridge does not fall back to password/browser login. Never share tokens, the token store, or Network/HAR exports.
 
 ---
 
@@ -506,6 +427,7 @@ climate.rehau_living_room:
 
 #### Sensors
 - `sensor.rehau_bridge_status` - Connection status
+- `sensor.rehau_token_status` - Token validation/renewal, `error` and `error_text` attributes
 - `sensor.rehau_auth_status` - Authentication state
 - `sensor.rehau_outside_temperature` - Outdoor temperature
 - `sensor.rehau_zone_*_humidity` - Zone humidity
@@ -534,16 +456,9 @@ automation:
 
 ## 🔧 Troubleshooting
 
-### Authentication Issues
+### Token Validation or Renewal Issues
 
-**Problem**: Authentication fails
-```
-✓ Verify REHAU credentials
-✓ Check POP3 configuration
-✓ Ensure email forwarding is active
-✓ Enable LOG_LEVEL=debug
-✓ Check for 2FA emails in POP3 account
-```
+Check `sensor.rehau_token_status` attributes `error` and `error_text` and the add-on log. Verify your account email, both tokens, and network access. For a rejected refresh token obtain a new pair, Save, and restart. Do not share raw tokens or browser Network exports.
 
 ### MQTT Issues
 
@@ -554,16 +469,6 @@ automation:
 ✓ Test with mosquitto_pub/sub
 ✓ Verify credentials if auth enabled
 ✓ Check firewall rules
-```
-
-### Playwright Issues
-
-**Problem**: Browser launch fails
-```
-✓ Ensure Chromium dependencies installed
-✓ Increase memory allocation (4GB recommended)
-✓ Set PLAYWRIGHT_HEADLESS=true
-✓ Check system resources
 ```
 
 ### Data Staleness
@@ -631,7 +536,6 @@ npm run release:major  # Bump major version
 rehau-nea-smart-mqtt-bridge/
 ├── src/
 │   ├── api/              # REST API routes and middleware
-│   ├── auth/             # OAuth2 providers
 │   ├── ha-integration/   # Home Assistant integration
 │   ├── logging/          # Enhanced logging system
 │   ├── monitoring/       # Resource and staleness monitoring
@@ -639,8 +543,6 @@ rehau-nea-smart-mqtt-bridge/
 │   ├── climate-controller.ts
 │   ├── index.ts
 │   ├── mqtt-bridge.ts
-│   ├── playwright-https-client.ts
-│   ├── pop3-client.ts
 │   └── rehau-auth.ts
 ├── web-ui/
 │   ├── src/
@@ -693,7 +595,6 @@ This project is proudly sponsored by **[DomoDreams.it](https://domodreams.it)** 
 
 - **REHAU** for the NEA SMART 2.0 system
 - **Home Assistant** community
-- **Playwright** team
 - **React** and **TypeScript** communities
 - All contributors and users
 

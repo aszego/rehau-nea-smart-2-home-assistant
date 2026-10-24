@@ -1,5 +1,7 @@
 # 🎉 ALL FEATURES IMPLEMENTED - READY TO TEST!
 
+> Historical v5 report: password/browser and mailbox authentication have been removed. Follow the [current token-only configuration guide](../../docs/configuration.md#obtaining-the-token-pair); old authentication instructions below no longer apply.
+
 ## Status: 100% Complete ✅
 
 All requested features have been fully implemented and are ready for testing.
@@ -41,9 +43,6 @@ npm start
 - `src/auth/outlook-oauth2-provider.ts`
 - `src/pop3-oauth2-client.ts`
 - `src/pop3-client-factory.ts`
-- `scripts/get-gmail-oauth2-token.py`
-- `scripts/get-outlook-oauth2-token.py`
-- `docs/oauth2-setup.md`
 
 ### 2. Directional Indicators ✅
 - **⬆️ Outgoing** - Data sent to REHAU/MQTT
@@ -142,12 +141,10 @@ npm start
 
 **For Gmail**:
 ```powershell
-python scripts/get-gmail-oauth2-token.py
 ```
 
 **For Outlook**:
 ```powershell
-python scripts/get-outlook-oauth2-token.py
 ```
 
 Add credentials to `.env` and restart server.
@@ -215,7 +212,6 @@ All documentation is complete and ready:
 - `NEW_FEATURES_v5.md` - User-friendly feature overview
 - `COMPLETE_DEPLOYMENT_GUIDE.md` - Step-by-step deployment
 - `FEATURE_IMPLEMENTATION_SUMMARY.md` - Technical implementation details
-- `docs/oauth2-setup.md` - Complete OAuth2 setup guide
 - `REFACTORING_PLAN.md` - Updated project status
 
 ---
@@ -268,7 +264,6 @@ cd ..
 
 ### OAuth2 Not Working
 1. Verify credentials in `.env`
-2. Check `docs/oauth2-setup.md`
 3. Re-run token generator script
 4. Check server logs for errors
 

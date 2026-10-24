@@ -1,5 +1,7 @@
 # 🎉 New Features in v5.0.0
 
+> Historical v5 report: password/browser and mailbox authentication have been removed. Follow the [current token-only configuration guide](../../docs/configuration.md#obtaining-the-token-pair); old authentication instructions below no longer apply.
+
 ## Overview
 
 Version 5.0.0 brings major enhancements to the REHAU NEA SMART 2.0 MQTT Bridge, transforming it into a modern, full-featured Progressive Web App with advanced authentication and mobile-first features.
@@ -33,10 +35,7 @@ Modern, secure authentication for Gmail and Outlook/Office365 that eliminates th
    ```
 
 2. **Follow the setup guide**:
-   - See `docs/oauth2-setup.md` for detailed instructions
    - Run helper scripts to get tokens:
-     - `python scripts/get-gmail-oauth2-token.py` (Gmail)
-     - `python scripts/get-outlook-oauth2-token.py` (Outlook)
 
 3. **Add credentials to .env**:
    ```env
@@ -224,7 +223,6 @@ npm start
 
 ### 3. Configure OAuth2 (Optional)
 
-1. Read `docs/oauth2-setup.md`
 2. Run token generator script
 3. Add credentials to `.env`
 4. Restart server
@@ -235,9 +233,6 @@ npm start
 
 - `COMPLETE_DEPLOYMENT_GUIDE.md` - Step-by-step deployment
 - `FEATURE_IMPLEMENTATION_SUMMARY.md` - Technical details
-- `docs/oauth2-setup.md` - OAuth2 setup guide
-- `scripts/get-gmail-oauth2-token.py` - Gmail token generator
-- `scripts/get-outlook-oauth2-token.py` - Outlook token generator
 
 ---
 

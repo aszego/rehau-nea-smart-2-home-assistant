@@ -115,64 +115,6 @@ homeassistant/sensor/rehau_zone_{id}_last_update/state
 
 ---
 
-### 3️⃣ Playwright Optimization (Priority 4)
-
-**Estimated Time**: 2-3 days
-
-#### Tasks:
-- [ ] **Lazy Browser Initialization**
-  - Only start browser when authentication needed
-  - Keep browser closed during normal operation
-  - Test: Verify browser not running when idle
-
-- [ ] **Idle Timeout**
-  - Close browser after 5 minutes of inactivity
-  - Track last browser usage time
-  - Implement cleanup timer
-  - Test: Browser closes after timeout
-
-- [ ] **Optimize Browser Settings**
-  - Add resource-saving launch arguments
-  - Disable unnecessary features (GPU, extensions, etc.)
-  - Block images, stylesheets, fonts during auth
-  - Test: Measure memory usage before/after
-
-- [ ] **Smart Token Caching**
-  - Validate tokens before launching browser
-  - Only use Playwright when tokens truly expired
-  - Cache successful authentication state
-  - Test: Avoid unnecessary browser launches
-
-- [ ] **Memory Monitoring**
-  - Track browser memory usage
-  - Log memory stats periodically
-  - Add warnings for high memory usage
-  - Test: Monitor over 24 hours
-
-**Files to Modify**:
-```
-src/playwright-https-client.ts  # Lazy init, idle timeout
-src/rehau-auth.ts               # Smart caching
-src/monitoring/
-└── resource-monitor.ts         # Memory monitoring
-```
-
-**Configuration to Add**:
-```env
-PLAYWRIGHT_IDLE_TIMEOUT=300     # 5 minutes
-PLAYWRIGHT_MEMORY_LIMIT=100     # MB
-PLAYWRIGHT_LAZY_INIT=true       # Default true
-```
-
-**Success Criteria**:
-- ✅ Browser not running when idle
-- ✅ Browser closes after 5 min timeout
-- ✅ Memory usage < 100MB when idle
-- ✅ Authentication still works reliably
-- ✅ Faster startup (no browser launch)
-
----
-
 ### 4️⃣ Web UI Enhancements
 
 **Estimated Time**: 3-5 days
@@ -233,11 +175,7 @@ web-ui/src/
 
 ---
 
-### 5️⃣ OAuth2 POP3 Authentication (Priority 6)
-
-**Estimated Time**: 5-7 days
-
-#### Tasks:
+## Tasks:
 - [ ] **Research OAuth2 Flows**
   - Gmail OAuth2 POP3 access
   - Outlook OAuth2 POP3 access
@@ -339,26 +277,12 @@ Update this checklist as you complete each item:
 - [ ] Auto-refresh working
 - [ ] Zone last update sensors added
 
-### Playwright Optimization
-- [ ] Lazy initialization implemented
-- [ ] Idle timeout working
-- [ ] Browser settings optimized
-- [ ] Memory monitoring added
-
 ### Web UI Enhancements
 - [ ] PWA support added
 - [ ] WebSocket updates working
 - [ ] Temperature slider created
 - [ ] Pull-to-refresh implemented
 - [ ] Historical graphs added
-
-### OAuth2 POP3
-- [ ] Gmail OAuth2 working
-- [ ] Outlook OAuth2 working
-- [ ] Session persistence working
-- [ ] Setup wizard created
-
----
 
 ## 🎯 Success Metrics
 
@@ -369,7 +293,6 @@ Update this checklist as you complete each item:
 - No regression in existing functionality
 - Memory usage < 150MB on Raspberry Pi
 - Startup time < 15 seconds
-- 2FA prompts < 1 per week (with OAuth2)
 - Web UI feels like native app
 
 **Documentation**:

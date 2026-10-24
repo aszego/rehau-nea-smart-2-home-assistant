@@ -1,5 +1,7 @@
 # Feature Implementation Summary
 
+> Historical v5 report: password/browser and mailbox authentication have been removed. Follow the [current token-only configuration guide](../../docs/configuration.md#obtaining-the-token-pair); old authentication instructions below no longer apply.
+
 ## Date: February 22, 2026
 ## Version: 5.0.0 (Ready for Release)
 
@@ -29,10 +31,7 @@ src/pop3-oauth2-client.ts        # OAuth2-enabled POP3 client
 src/pop3-client-factory.ts       # Factory to create appropriate client
 
 scripts/
-├── get-gmail-oauth2-token.py    # Helper script for Gmail setup
-└── get-outlook-oauth2-token.py  # Helper script for Outlook setup
 
-docs/oauth2-setup.md             # Complete setup guide
 ```
 
 **Configuration** (.env):
@@ -283,7 +282,7 @@ chmod +x deploy-all-features.sh
    # Windows
    copy web-ui\public\sw.js web-ui\dist\sw.js
    copy web-ui\public\manifest.json web-ui\dist\manifest.json
-   
+
    # Linux/Mac
    cp web-ui/public/sw.js web-ui/dist/sw.js
    cp web-ui/public/manifest.json web-ui/dist/manifest.json
@@ -336,8 +335,6 @@ chmod +x deploy-all-features.sh
 
 ### Enable OAuth2 for Gmail
 
-1. Follow `docs/oauth2-setup.md`
-2. Run `python scripts/get-gmail-oauth2-token.py`
 3. Add to `.env`:
    ```env
    POP3_PROVIDER=gmail
@@ -349,8 +346,6 @@ chmod +x deploy-all-features.sh
 
 ### Enable OAuth2 for Outlook
 
-1. Follow `docs/oauth2-setup.md`
-2. Run `python scripts/get-outlook-oauth2-token.py`
 3. Add to `.env`:
    ```env
    POP3_PROVIDER=outlook
@@ -374,12 +369,12 @@ POP3_PASSWORD=your_password
 
 ## 🎯 What's Working
 
-✅ OAuth2 POP3 (Gmail/Outlook) - Fully implemented  
-✅ Directional indicators - Code ready, needs integration  
-✅ PWA support - Fully implemented  
-✅ Pull-to-refresh - Fully implemented  
-✅ Haptic feedback - Fully implemented  
-✅ Offline indicator - Fully implemented  
+✅ OAuth2 POP3 (Gmail/Outlook) - Fully implemented
+✅ Directional indicators - Code ready, needs integration
+✅ PWA support - Fully implemented
+✅ Pull-to-refresh - Fully implemented
+✅ Haptic feedback - Fully implemented
+✅ Offline indicator - Fully implemented
 
 ---
 
@@ -395,9 +390,6 @@ POP3_PASSWORD=your_password
 
 ## 📚 Documentation
 
-- `docs/oauth2-setup.md` - Complete OAuth2 setup guide
-- `scripts/get-gmail-oauth2-token.py` - Gmail token generator
-- `scripts/get-outlook-oauth2-token.py` - Outlook token generator
 - `.env.example` - Updated with OAuth2 configuration
 
 ---

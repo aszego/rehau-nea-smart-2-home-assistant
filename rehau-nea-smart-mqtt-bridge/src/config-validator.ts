@@ -3,7 +3,8 @@
 interface Config {
   rehau: {
     email: string;
-    password: string;
+    accessToken: string;
+    refreshToken: string;
   };
   mqtt: {
     host: string;
@@ -87,39 +88,8 @@ export class ConfigValidator {
       }
     }
 
-    const accessToken = process.env.REHAU_ACCESS_TOKEN || '';
-    const refreshToken = process.env.REHAU_REFRESH_TOKEN || '';
-    const hasTokenConfig = accessToken.trim() !== '' || refreshToken.trim() !== '';
-
-    // Password validation
-    if (!rehau.password || rehau.password.trim() === '') {
-      if (!hasTokenConfig) {
-        errors.push({
-          field: 'REHAU_PASSWORD',
-          message: 'REHAU password is required unless token authentication is configured',
-          severity: 'error'
-        });
-      } else if (accessToken.trim() === '') {
-        errors.push({
-          field: 'REHAU_ACCESS_TOKEN',
-          message: 'REHAU_ACCESS_TOKEN is required when REHAU_REFRESH_TOKEN is set',
-          severity: 'error'
-        });
-      } else if (refreshToken.trim() === '') {
-        errors.push({
-          field: 'REHAU_REFRESH_TOKEN',
-          message: 'REHAU_REFRESH_TOKEN is required when REHAU_ACCESS_TOKEN is set',
-          severity: 'error'
-        });
-      }
-    } else {
-      if (rehau.password.length < 8) {
-        errors.push({
-          field: 'REHAU_PASSWORD',
-          message: 'REHAU password is less than 8 characters (security warning)',
-          severity: 'warning'
-        });
-      }
+    for (const [field, token] of [['REHAU_ACCESS_TOKEN', rehau.accessToken], ['REHAU_REFRESH_TOKEN', rehau.refreshToken]]) {
+      if (!token || !token.trim()) errors.push({ field, message: `${field} is required`, severity: 'error' });
     }
 
     return errors;

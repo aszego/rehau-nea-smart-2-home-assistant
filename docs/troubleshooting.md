@@ -52,6 +52,10 @@ When sharing logs on GitHub issues or public forums:
 
 ## Common Issues
 
+### Token validation or renewal fails
+
+Check `sensor.rehau_token_status` attributes: `error` is true on failure and `error_text` explains the problem. Verify network access and the REHAU account email. If the refresh token is rejected, [obtain a new pair](./configuration.md#obtaining-the-token-pair), replace both masked fields, click **Save**, and **Restart**. Startup validates immediately; Save alone does not. Preserve the durable `/data/rehau-tokens.json` store across restarts and container replacement. Never post tokens, the store, or browser Network exports.
+
 ### Add-on won't start
 
 **Symptoms:**
@@ -60,7 +64,7 @@ When sharing logs on GitHub issues or public forums:
 
 **Solutions:**
 - Check the Log tab for error messages
-- Verify your REHAU credentials are correct
+- Verify your REHAU account email and both tokens are correct
 - Ensure MQTT broker is running and accessible
 - Check that all required configuration fields are set
 

@@ -24,23 +24,22 @@ docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 -t rehau-nea
 
 ## Running the Docker Container
 
+[Obtain both tokens manually](../../docs/configuration.md#obtaining-the-token-pair) and configure the REHAU email, access token, and refresh token. Set a strong separate API/Web UI administrator password and JWT secret in `.env`. Restart after changing tokens for immediate validation. Keep `/data` mounted durably for renewed tokens; inspect `sensor.rehau_token_status` attributes `error`/`error_text` for validation and renewal failures. No browser or mailbox packages are required.
+
 ### Standalone Mode (using environment variables):
 
 ```bash
 docker run -d \
   --name rehau-bridge \
   -p 3000:3000 \
+  -v rehau-data:/data \
   -e REHAU_EMAIL="your.email@example.com" \
-  -e REHAU_PASSWORD="your_password" \
+  -e REHAU_ACCESS_TOKEN="your_access_token" \
+  -e REHAU_REFRESH_TOKEN="your_refresh_token" \
   -e MQTT_HOST="192.168.1.100" \
   -e MQTT_PORT="1883" \
   -e MQTT_USER="mqtt_user" \
   -e MQTT_PASSWORD="mqtt_password" \
-  -e POP3_EMAIL="your.email@gmx.com" \
-  -e POP3_PASSWORD="your_pop3_password" \
-  -e POP3_HOST="pop.gmx.com" \
-  -e POP3_PORT="995" \
-  -e POP3_SECURE="true" \
   -e API_ENABLED="true" \
   -e WEB_UI_ENABLED="true" \
   -e API_PORT="3000" \
@@ -54,6 +53,7 @@ docker run -d \
 docker run -d \
   --name rehau-bridge \
   -p 3000:3000 \
+  -v rehau-data:/data \
   --env-file .env \
   rehau-nea-smart-mqtt-bridge:latest
 ```
@@ -72,25 +72,20 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
+    volumes:
+      - rehau-data:/data
     environment:
       # REHAU Account
       REHAU_EMAIL: "your.email@example.com"
-      REHAU_PASSWORD: "your_password"
-      
+      REHAU_ACCESS_TOKEN: "your_access_token"
+      REHAU_REFRESH_TOKEN: "your_refresh_token"
+
       # MQTT Broker
       MQTT_HOST: "mqtt-broker"
       MQTT_PORT: "1883"
       MQTT_USER: "mqtt_user"
       MQTT_PASSWORD: "mqtt_password"
-      
-      # POP3 (for 2FA)
-      POP3_PROVIDER: "basic"
-      POP3_EMAIL: "your.email@gmx.com"
-      POP3_PASSWORD: "your_pop3_password"
-      POP3_HOST: "pop.gmx.com"
-      POP3_PORT: "995"
-      POP3_SECURE: "true"
-      
+
       # API & Web UI
       API_ENABLED: "true"
       WEB_UI_ENABLED: "true"
@@ -98,14 +93,11 @@ services:
       API_USERNAME: "admin"
       API_PASSWORD: "your_secure_password"
       JWT_SECRET: "your_jwt_secret"
-      
+
       # Logging
       LOG_LEVEL: "info"
       LOG_SHOW_OK_REQUESTS: "false"
-      
-      # Playwright
-      PLAYWRIGHT_HEADLESS: "true"
-      
+
     networks:
       - rehau-network
     depends_on:
@@ -123,6 +115,9 @@ services:
       - ./mosquitto/log:/mosquitto/log
     networks:
       - rehau-network
+
+volumes:
+  rehau-data:
 
 networks:
   rehau-network:
@@ -151,7 +146,8 @@ See `.env.example` for complete list of environment variables.
 
 ### Required:
 - `REHAU_EMAIL` - Your REHAU account email
-- `REHAU_PASSWORD` - Your REHAU account password
+- `REHAU_ACCESS_TOKEN` - Required access token
+- `REHAU_REFRESH_TOKEN` - Required refresh token from the same login response
 - `MQTT_HOST` - MQTT broker hostname/IP
 
 ### Optional (with defaults):
@@ -208,6 +204,6 @@ The addon uses `/data/options.json` for configuration instead of environment var
 
 - The image uses multi-stage build to minimize size
 - Web UI is built during Docker build (not at runtime)
-- Chromium is included for Playwright authentication
+- No browser runtime is included; tokens are renewed over HTTPS
 - Health check endpoint is `/health`
 - Logs are written to stdout (visible with `docker logs`)
